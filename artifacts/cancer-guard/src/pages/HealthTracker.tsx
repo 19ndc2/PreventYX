@@ -91,7 +91,7 @@ export default function HealthTracker() {
   const completedEventIds = new Set(
     (logs ?? [])
       .filter(l => l.description?.startsWith("care_plan_event:"))
-      .map(l => l.description!.split(":")[1])
+      .map(l => l.description!.split("\n")[0].split("care_plan_event:")[1])
   );
 
   const events: CarePlanEvent[] = plan?.events ?? [];
