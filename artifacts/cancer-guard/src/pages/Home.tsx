@@ -10,9 +10,6 @@ import {
   LogIn,
   LogOut,
   User as UserIcon,
-  Eye,
-  EyeOff,
-  Send,
   CheckCircle2,
 } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
@@ -35,16 +32,8 @@ const CANCER_TYPES = [
   { label: "Cervical Lymphadenopathy", icon: "🫀" },
 ];
 
-type Stage =
-  | "cancer_selection"
-  | "ask_first_name"
-  | "ask_last_name"
-  | "ask_username"
-  | "ask_password"
-  | "generating"
-  | "done";
-
-type MsgType = "text" | "cancer_buttons" | "spinner" | "done";
+type Stage = "not_authed" | "cancer_selection" | "generating" | "done";
+type MsgType = "text" | "cancer_buttons" | "login_prompt" | "spinner" | "done";
 
 interface Message {
   id: string;
@@ -77,23 +66,35 @@ export default function Home() {
   const { user, isAuthenticated, isLoading, login, logout } = useAuth();
   const sessionId = getSessionId();
 
-  const [stage, setStage] = useState<Stage>("cancer_selection");
-  const [messages, setMessages] = useState<Message[]>([
-    agentMsg("Hi! I'm your Preventyx health guide 👋 Let's set up your account and find the right prevention plan for you."),
-    agentMsg("Which type of cancer would you like a prevention plan for?", "cancer_buttons"),
-  ]);
+  const displayName = user?.firstName ?? user?.email?.split("@")[0] ?? "there";
 
-  const [cancerType, setCancerType] = useState("");
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [username, setUsername] = useState("");
-  const [inputValue, setInputValue] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState("");
+  const initialMessages = (): Message[] => [
+    agentMsg("Welcome to Preventyx 👋 I'm your cancer prevention guide, built on Cancer Care Ontario guidelines."),
+    agentMsg(
+      isAuthenticated
+        ? `Hi ${displayName}! Which type of cancer would you like a prevention plan for?`
+        : "To get started, please log in so I can create your personalized care plan.",
+      isAuthenticated ? "cancer_buttons" : "login_prompt"
+    ),
+  ];
+
+  const [stage, setStage] = useState<Stage>(isAuthenticated ? "cancer_selection" : "not_authed");
+  const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [isProcessing, setIsProcessing] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+
+  // When auth state resolves, update the chat
+  useEffect(() => {
+    if (isLoading) return;
+    if (isAuthenticated && stage === "not_authed") {
+      setStage("cancer_selection");
+      setMessages([
+        agentMsg("Welcome to Preventyx 👋 I'm your cancer prevention guide, built on Cancer Care Ontario guidelines."),
+        agentMsg(`Welcome back, ${displayName}! Which type of cancer would you like a prevention plan for?`, "cancer_buttons"),
+      ]);
+    }
+  }, [isAuthenticated, isLoading]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -101,158 +102,68 @@ export default function Home() {
     }
   }, [messages]);
 
-  useEffect(() => {
-    if (!["cancer_selection", "generating", "done"].includes(stage)) {
-      setTimeout(() => inputRef.current?.focus(), 100);
-    }
-  }, [stage]);
+  const handleLogin = () => {
+    login();
+  };
 
-  const handleCancerSelect = (type: string) => {
+  const handleCancerSelect = async (type: string) => {
     if (stage !== "cancer_selection") return;
-    setCancerType(type);
+
     setMessages(prev => [
       ...prev,
       userMsg(type),
-      agentMsg(`Great — I'll build your **${type}** prevention plan.\n\nWhat's your first name?`),
+      agentMsg(`Great choice — building your **${type}** prevention plan based on Cancer Care Ontario guidelines…`, "spinner"),
     ]);
-    setStage("ask_first_name");
+    setStage("generating");
+    await runGeneration(type);
   };
 
-  const handleInputSubmit = async () => {
-    if (!inputValue.trim() || isProcessing) return;
-    const val = inputValue.trim();
-    setInputValue("");
-    setError("");
-
-    if (stage === "ask_first_name") {
-      setFirstName(val);
-      setMessages(prev => [
-        ...prev,
-        userMsg(val),
-        agentMsg(`Nice to meet you, ${val}! And your last name?`),
-      ]);
-      setStage("ask_last_name");
-
-    } else if (stage === "ask_last_name") {
-      setLastName(val);
-      setMessages(prev => [
-        ...prev,
-        userMsg(val),
-        agentMsg("Perfect. Now choose a username for your account:"),
-      ]);
-      setStage("ask_username");
-
-    } else if (stage === "ask_username") {
-      if (val.length < 3) {
-        setError("Username must be at least 3 characters.");
-        setInputValue(val);
-        return;
-      }
-      setUsername(val);
-      setMessages(prev => [
-        ...prev,
-        userMsg(val),
-        agentMsg("Almost there! Choose a password (at least 6 characters):"),
-      ]);
-      setStage("ask_password");
-
-    } else if (stage === "ask_password") {
-      if (val.length < 6) {
-        setError("Password must be at least 6 characters.");
-        setInputValue(val);
-        return;
-      }
-      setMessages(prev => [
-        ...prev,
-        userMsg("••••••••"),
-        agentMsg("Creating your account and building your care plan…", "spinner"),
-      ]);
-      setStage("generating");
-      await runGeneration(val);
-    }
-  };
-
-  const runGeneration = async (pwd: string) => {
+  const runGeneration = async (cancerType: string) => {
     setIsProcessing(true);
     const base = import.meta.env.BASE_URL.replace(/\/$/, "");
 
     try {
-      const [regRes, planRes] = await Promise.all([
-        fetch(`${base}/api/profiles/register`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sessionId,
-            firstName,
-            lastName,
-            username,
-            password: pwd,
-          }),
+      const planRes = await fetch(`${base}/api/agent/intake`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cancerType,
+          riskLevel: "average",
+          sessionId,
+          answers: [],
+          questions: [],
         }),
-        fetch(`${base}/api/agent/intake`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            cancerType,
-            riskLevel: "average",
-            sessionId,
-            answers: [],
-            questions: [],
-          }),
-        }),
-      ]);
+      });
 
-      if (!regRes.ok) {
-        const err = await regRes.json();
-        setMessages(prev => [
-          ...prev.filter(m => m.type !== "spinner"),
-          agentMsg(err.message ?? "That username is already taken. Please try another."),
-        ]);
-        setStage("ask_username");
-        setIsProcessing(false);
-        return;
-      }
-
-      if (!planRes.ok) throw new Error("Care plan failed");
+      if (!planRes.ok) throw new Error("Care plan generation failed");
 
       const planData = await planRes.json();
       const planId = planData.id ?? planData.carePlanId;
       localStorage.setItem("preventyx_care_plan_id", String(planId));
-      localStorage.setItem("preventyx_profile_name", firstName);
+      localStorage.setItem("preventyx_profile_name", displayName);
 
       const eventCount = planData.care_plan_events?.length ?? 0;
       const pathway = planData.user_profile?.recommended_pathway ?? `${cancerType} Prevention Plan`;
 
       setMessages(prev => [
         ...prev.filter(m => m.type !== "spinner"),
-        agentMsg(`Welcome, ${firstName}! 🎉 Your account is ready and your care plan has been created.\n\nI've built your **${pathway}** with ${eventCount} scheduled care events based on Cancer Care Ontario guidelines.`),
-        agentMsg("Go to your dashboard to see your full care calendar, upcoming screenings, and required actions.", "done"),
+        agentMsg(`Your care plan is ready, ${displayName}! 🎉\n\nI've created your **${pathway}** with ${eventCount} scheduled care events based on Cancer Care Ontario guidelines.`),
+        agentMsg("Head to your dashboard to see your full care calendar, upcoming screenings, and required actions.", "done"),
       ]);
       setStage("done");
     } catch {
       setMessages(prev => [
         ...prev.filter(m => m.type !== "spinner"),
-        agentMsg("Something went wrong. Please try again."),
+        agentMsg("Something went wrong generating your plan. Please try again."),
       ]);
-      setStage("ask_password");
+      setStage("cancer_selection");
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const inputPlaceholder: Record<string, string> = {
-    ask_first_name: "Your first name…",
-    ask_last_name: "Your last name…",
-    ask_username: "Choose a username…",
-    ask_password: "Choose a password…",
-  };
-
-  const showInput = ["ask_first_name", "ask_last_name", "ask_username", "ask_password"].includes(stage);
-  const isPasswordStage = stage === "ask_password";
-
   return (
     <div className="min-h-screen bg-background relative overflow-hidden">
-      {/* Subtle background */}
       <div className="absolute inset-0 bg-gradient-to-br from-teal-50/60 via-white to-slate-50 pointer-events-none" />
       <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-primary/5 rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none" />
       <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-teal-100/30 rounded-full translate-y-1/2 -translate-x-1/3 pointer-events-none" />
@@ -294,7 +205,7 @@ export default function Home() {
                 </div>
               ) : (
                 <button
-                  onClick={login}
+                  onClick={handleLogin}
                   className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-white font-semibold text-sm hover:bg-primary/90 transition-colors shadow-sm shadow-primary/20"
                 >
                   <LogIn className="w-4 h-4" />
@@ -305,9 +216,9 @@ export default function Home() {
           </div>
         </nav>
 
-        {/* Main content — two columns */}
+        {/* Main — two columns */}
         <div className="flex-1 grid lg:grid-cols-2 gap-10 lg:gap-16 items-center py-8">
-          {/* Left: Hero copy */}
+          {/* Left: Hero */}
           <motion.div
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
@@ -328,7 +239,7 @@ export default function Home() {
             </h1>
 
             <p className="text-base lg:text-lg text-muted-foreground mb-8 leading-relaxed max-w-lg">
-              Create your free account, tell us which cancer you want to prevent, and get a personalized care plan grounded in Cancer Care Ontario clinical pathways.
+              Log in, tell us which cancer you want to prevent, and get a personalized care plan grounded in Cancer Care Ontario clinical pathways.
             </p>
 
             <ul className="space-y-3 mb-10">
@@ -344,20 +255,21 @@ export default function Home() {
               onClick={() => navigate("/dashboard")}
               className="flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-primary transition-colors group"
             >
-              Already have an account? Go to dashboard
+              Already have a care plan? Go to dashboard
               <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
             </button>
           </motion.div>
 
-          {/* Right: Registration chatbot */}
+          {/* Right: Chatbot */}
           <motion.div
             initial={{ opacity: 0, scale: 0.97 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.8, delay: 0.1 }}
             className="w-full"
           >
-            <div className="bg-white/90 backdrop-blur-sm rounded-3xl border border-border/60 shadow-xl shadow-black/5 overflow-hidden flex flex-col"
-              style={{ height: "580px" }}
+            <div
+              className="bg-white/90 backdrop-blur-sm rounded-3xl border border-border/60 shadow-xl shadow-black/5 overflow-hidden flex flex-col"
+              style={{ height: "520px" }}
             >
               {/* Chat header */}
               <div className="flex items-center gap-3 px-5 py-4 border-b border-border/50 bg-white/80 shrink-0">
@@ -394,6 +306,7 @@ export default function Home() {
                       )}
 
                       <div className="max-w-[84%] flex flex-col gap-2">
+                        {/* Regular text bubble */}
                         {(msg.type === "text" || msg.type === "cancer_buttons") && (
                           <div className={`px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-line ${
                             msg.role === "agent"
@@ -406,13 +319,31 @@ export default function Home() {
                           </div>
                         )}
 
+                        {/* Login prompt */}
+                        {msg.type === "login_prompt" && (
+                          <div className="flex flex-col gap-3">
+                            <div className="px-3.5 py-2.5 rounded-2xl rounded-tl-none bg-white border border-border/50 shadow-sm text-sm text-foreground">
+                              {msg.content}
+                            </div>
+                            <button
+                              onClick={handleLogin}
+                              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-white font-semibold text-sm hover:bg-primary/90 transition-colors shadow-sm w-fit"
+                            >
+                              <LogIn className="w-4 h-4" />
+                              Log in to continue
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Cancer type buttons */}
                         {msg.type === "cancer_buttons" && stage === "cancer_selection" && (
                           <div className="grid grid-cols-2 gap-1.5 mt-1">
                             {CANCER_TYPES.map(ct => (
                               <button
                                 key={ct.label}
                                 onClick={() => handleCancerSelect(ct.label)}
-                                className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-white border border-border/60 hover:border-primary hover:bg-primary/5 text-xs font-medium text-foreground transition-all duration-200 shadow-sm text-left"
+                                disabled={isProcessing}
+                                className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-white border border-border/60 hover:border-primary hover:bg-primary/5 text-xs font-medium text-foreground transition-all duration-200 shadow-sm text-left disabled:opacity-50"
                               >
                                 <span className="text-sm">{ct.icon}</span>
                                 <span className="leading-tight">{ct.label}</span>
@@ -421,13 +352,17 @@ export default function Home() {
                           </div>
                         )}
 
+                        {/* Spinner */}
                         {msg.type === "spinner" && (
                           <div className="px-3.5 py-2.5 rounded-2xl rounded-tl-none bg-white border border-border/50 shadow-sm flex items-center gap-2 text-sm text-muted-foreground">
                             <Loader2 className="w-3.5 h-3.5 text-primary animate-spin shrink-0" />
-                            {msg.content}
+                            {msg.content.split("**").map((part, i) =>
+                              i % 2 === 1 ? <strong key={i}>{part}</strong> : part
+                            )}
                           </div>
                         )}
 
+                        {/* Done CTA */}
                         {msg.type === "done" && (
                           <div className="flex flex-col gap-2">
                             <div className="px-3.5 py-2.5 rounded-2xl rounded-tl-none bg-white border border-border/50 shadow-sm text-sm text-foreground">
@@ -454,56 +389,20 @@ export default function Home() {
                 </AnimatePresence>
               </div>
 
-              {/* Input area */}
-              <div className="px-4 py-3 bg-white border-t border-border/50 shrink-0">
-                <AnimatePresence>
-                  {showInput && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 6 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 6 }}
-                      className="flex flex-col gap-1.5"
-                    >
-                      {error && (
-                        <p className="text-xs text-destructive font-medium">{error}</p>
-                      )}
-                      <div className="flex items-center gap-2 bg-slate-50 border-2 border-border/50 focus-within:border-primary rounded-xl px-3 py-2.5 transition-colors">
-                        <input
-                          ref={inputRef}
-                          type={isPasswordStage && !showPassword ? "password" : "text"}
-                          value={inputValue}
-                          onChange={e => { setInputValue(e.target.value); setError(""); }}
-                          onKeyDown={e => e.key === "Enter" && handleInputSubmit()}
-                          placeholder={inputPlaceholder[stage] ?? ""}
-                          disabled={isProcessing}
-                          className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                        />
-                        {isPasswordStage && (
-                          <button
-                            type="button"
-                            onClick={() => setShowPassword(p => !p)}
-                            className="text-muted-foreground hover:text-foreground transition-colors"
-                          >
-                            {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                          </button>
-                        )}
-                        <button
-                          onClick={handleInputSubmit}
-                          disabled={!inputValue.trim() || isProcessing}
-                          className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center text-white disabled:opacity-40 hover:bg-primary/90 transition-colors shrink-0"
-                        >
-                          <Send className="w-3 h-3" />
-                        </button>
-                      </div>
-                    </motion.div>
-                  )}
-                  {!showInput && stage !== "done" && (
-                    <p className="text-xs text-center text-muted-foreground py-1">Select a cancer type above to get started</p>
-                  )}
-                  {stage === "done" && (
-                    <p className="text-xs text-center text-muted-foreground py-1">Account created successfully ✓</p>
-                  )}
-                </AnimatePresence>
+              {/* Footer */}
+              <div className="px-4 py-3 bg-white border-t border-border/50 shrink-0 text-center">
+                {stage === "cancer_selection" && (
+                  <p className="text-xs text-muted-foreground">Select a cancer type above to get started</p>
+                )}
+                {stage === "not_authed" && (
+                  <p className="text-xs text-muted-foreground">Log in to unlock your personalized care plan</p>
+                )}
+                {stage === "generating" && (
+                  <p className="text-xs text-muted-foreground">Analysing Cancer Care Ontario guidelines…</p>
+                )}
+                {stage === "done" && (
+                  <p className="text-xs text-muted-foreground">Care plan created successfully ✓</p>
+                )}
               </div>
             </div>
 
