@@ -30,6 +30,7 @@ router.post("/care-plans", async (req, res) => {
         care_plan_events.map((e: any) => ({
           carePlanId: plan.id,
           eventId: e.event_id,
+          step: e.step ?? null,
           title: e.title,
           type: e.type,
           provider: e.provider,
@@ -38,6 +39,7 @@ router.post("/care-plans", async (req, res) => {
           isRecurring: e.is_recurring ?? false,
           notes: e.notes ?? null,
           clinicalReference: e.clinical_reference ?? null,
+          prerequisiteEventId: e.prerequisite_event_id ?? null,
         }))
       );
     }

@@ -62,14 +62,38 @@ router.post("/agent/intake", async (req, res) => {
 
     // Build the structured care plan using the AI
     const systemPrompt = `You are a clinical decision support agent for Preventyx, a Canadian cancer prevention platform.
-Your role is to generate a structured, personalized care plan based on Cancer Care Ontario guidelines retrieved from a knowledge base.
+Your role is to generate a structured, personalized care plan based on Cancer Care Ontario (CCO) guidelines retrieved from a knowledge base.
 
 IMPORTANT RULES:
 - Only use information from the provided Cancer Care Ontario documents.
 - Always recommend consulting a healthcare provider.
 - Output ONLY valid JSON — no markdown, no explanation, no preamble.
-- Dates should use YYYY-MM-DD format. Set recommended_start_date relative to today (${new Date().toISOString().split("T")[0]}).
-- Be specific to the user's risk level and cancer type.`;
+- Dates should use YYYY-MM-DD format. Today is ${new Date().toISOString().split("T")[0]}.
+- Be specific to the user's risk level and cancer type.
+
+OFFICIAL CCO SCREENING INTERVALS (strictly enforce these — never schedule events closer together than stated):
+- Breast Cancer (average risk, ages 40-74): Mammogram every 2 YEARS. First event ~1 month from today. Next event 2 years later.
+- Breast Cancer (high risk, ages 30-69): Annual mammogram + breast MRI. Events every 12 MONTHS, staggered 6 months apart.
+- Cervical Cancer (HPV screening, ages 25-70): HPV test every 5 YEARS (updated March 2025). First event ~2 months from today.
+- Colorectal Cancer (average risk, ages 50-74): FIT (Fecal Immunochemical Test) kit every 2 YEARS. Colonoscopy only if high-risk (family history): every 5-10 YEARS.
+- Lung Cancer (ages 55-80, must be heavy smoker 20+ pack-years): Annual low-dose CT (LDCT). Eligibility assessment MUST come first as an event, 2 weeks from today, before any LDCT.
+
+CANCERS WITH NO ORGANIZED ONTARIO SCREENING PROGRAM (Prostate, Esophageal, Endometrial, Thyroid, Bladder, Oropharyngeal, Ovarian, Liver/HCC, Thymic, Cervical Lymphadenopathy):
+- These require a GP referral → specialist assessment pathway.
+- Event 1 (ALWAYS first): "Family Doctor Referral Consultation" — 2-4 weeks from today.
+- Event 2: Specialist consultation or diagnostic workup — 6-8 weeks from today.
+- Event 3 (if applicable): Follow-up imaging/biopsy — 3-6 months from today.
+- Ongoing surveillance events: space at minimum 6-12 months apart based on the guidelines in the documents.
+- Do NOT invent organized population screening intervals that do not exist in Ontario for these cancers.
+
+PREREQUISITE LOGIC (enforce ordering):
+- For Lung: Risk assessment questionnaire event MUST precede any LDCT scan event.
+- For Colorectal high-risk: FIT test or GP consultation MUST precede colonoscopy referral.
+- For all non-organized-program cancers: GP referral MUST be Event 1 before any specialist or test.
+- Use event notes to clearly state "Complete this step before proceeding to the next event."
+
+EVENT SPACING — NEVER schedule two events less than 4 weeks apart unless they are of clearly different types (e.g., a GP referral followed by a blood test). All screening/surveillance events must respect the intervals above.`;
+
 
     const userPrompt = `A user has completed the Preventyx intake questionnaire. Generate their personalized care plan.
 
@@ -93,19 +117,21 @@ Generate a JSON object matching this EXACT structure:
   "care_plan_events": [
     {
       "event_id": "evt-1",
-      "title": "Event title (e.g. Annual Mammogram)",
-      "type": "Screening" | "Prevention" | "Consultation" | "Genetic Testing",
-      "provider": "Provider or clinic type (e.g. OBSP Screening Centre, Primary Care Provider)",
-      "frequency": "How often (e.g. Annually, Every 6 months, Once)",
+      "step": 1,
+      "title": "Event title (e.g. Family Doctor Referral Consultation)",
+      "type": "Screening" | "Prevention" | "Consultation" | "Genetic Testing" | "Diagnostic",
+      "provider": "Provider or clinic type (e.g. OBSP Screening Centre, Primary Care Provider, Gastroenterologist)",
+      "frequency": "How often (e.g. Every 2 Years, Every 5 Years, Annually, Once)",
       "recommended_start_date": "YYYY-MM-DD",
       "is_recurring": true | false,
-      "notes": "Any important notes about this event",
+      "prerequisite_event_id": null | "evt-1",
+      "notes": "Clinical note — if this event must come before the next, state: 'Complete this step before proceeding to Step 2.'",
       "clinical_reference": "The Cancer Care Ontario document or guideline this comes from"
     }
   ],
   "required_actions": [
     {
-      "action": "Action title (e.g. Get a referral from your doctor)",
+      "action": "Action title (e.g. Obtain a referral from your family doctor)",
       "target": "${cancerType}",
       "status": "Pending",
       "urgency": "High" | "Medium" | "Low"
@@ -113,7 +139,13 @@ Generate a JSON object matching this EXACT structure:
   ]
 }
 
-Return 2-4 care_plan_events and 1-3 required_actions appropriate for this person's risk profile. Return ONLY the JSON object.`;
+CRITICAL REQUIREMENTS FOR care_plan_events:
+1. Include a sequential "step" number for each event (1, 2, 3…) reflecting the correct order.
+2. Set "prerequisite_event_id" to the event_id of the step that must be completed BEFORE this one (or null for the first event).
+3. Use the OFFICIAL CCO intervals from the system prompt — do not invent intervals.
+4. Space events correctly: GP referral first (2-4 weeks from today), specialist next (6-8 weeks), then tests/imaging (months later).
+5. For cancers with no organized Ontario screening program, always start with a GP referral as Step 1.
+6. Return 3-5 care_plan_events and 1-3 required_actions. Return ONLY the JSON object.`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-5.2",

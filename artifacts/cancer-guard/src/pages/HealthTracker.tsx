@@ -15,18 +15,24 @@ import {
   Star,
   X,
   ChevronDown,
+  Lock,
+  RefreshCw,
+  ArrowRight,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface CarePlanEvent {
   id: number;
   eventId: string;
+  step: number | null;
   title: string;
   type: string;
   provider: string;
   frequency: string;
   recommendedStartDate: string | null;
   notes: string | null;
+  prerequisiteEventId: string | null;
+  clinicalReference: string | null;
 }
 
 type FeedbackRating = "great" | "okay" | "issues";
@@ -218,14 +224,21 @@ export default function HealthTracker() {
 
       {/* Care plan events — mark as done */}
       <div>
-        <h2 className="font-display font-semibold text-base mb-4 flex items-center gap-2">
-          <Activity className="w-4 h-4 text-primary" />
-          Your Scheduled Tests
-        </h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-display font-semibold text-base flex items-center gap-2">
+            <Activity className="w-4 h-4 text-primary" />
+            Your Care Plan Steps
+          </h2>
+          {events.length > 0 && (
+            <span className="text-xs text-muted-foreground font-medium bg-secondary px-2.5 py-1 rounded-lg">
+              {completedEventIds.size} / {events.length} completed
+            </span>
+          )}
+        </div>
 
         {planLoading ? (
           <div className="space-y-3">
-            {[1, 2, 3].map(i => <div key={i} className="h-16 bg-muted animate-pulse rounded-2xl" />)}
+            {[1, 2, 3].map(i => <div key={i} className="h-20 bg-muted animate-pulse rounded-2xl" />)}
           </div>
         ) : events.length === 0 ? (
           <div className="text-center py-10 bg-card rounded-2xl border border-dashed border-border">
@@ -233,52 +246,142 @@ export default function HealthTracker() {
             <p className="text-muted-foreground text-sm">No care plan yet. Get your personalized plan from the home page.</p>
           </div>
         ) : (
-          <div className="space-y-3">
-            {events.map(ev => {
-              const isDone = completedEventIds.has(ev.eventId);
-              return (
-                <div
-                  key={ev.id}
-                  className={cn(
-                    "flex items-center gap-4 p-4 rounded-2xl border transition-all",
-                    isDone
-                      ? "bg-green-50/50 border-green-200/60"
-                      : "bg-card border-border/50 hover:border-primary/30"
-                  )}
-                >
-                  <div className={cn(
-                    "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
-                    isDone ? "bg-green-100" : "bg-primary/10"
-                  )}>
-                    {isDone
-                      ? <CheckCircle2 className="w-5 h-5 text-green-600" />
-                      : <Stethoscope className="w-5 h-5 text-primary" />
-                    }
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className={cn("font-semibold text-sm", isDone && "line-through text-muted-foreground")}>
-                      {ev.title}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {ev.provider} · {ev.frequency}
-                      {ev.recommendedStartDate && ` · ${format(parseISO(ev.recommendedStartDate), "MMM d, yyyy")}`}
-                    </p>
-                  </div>
-                  {!isDone ? (
-                    <button
-                      onClick={() => openFeedback(ev)}
-                      className="shrink-0 px-3 py-1.5 rounded-xl bg-primary/10 text-primary font-semibold text-xs hover:bg-primary hover:text-white transition-all"
-                    >
-                      Mark Done
-                    </button>
-                  ) : (
-                    <span className="shrink-0 px-3 py-1.5 rounded-xl bg-green-100 text-green-700 font-semibold text-xs">
-                      Done ✓
-                    </span>
-                  )}
-                </div>
-              );
-            })}
+          <div className="relative">
+            {/* Vertical connector line */}
+            <div className="absolute left-5 top-10 bottom-10 w-px bg-border/60 z-0" />
+
+            <div className="space-y-3 relative z-10">
+              {events
+                .slice()
+                .sort((a, b) => (a.step ?? 99) - (b.step ?? 99))
+                .map((ev, idx) => {
+                  const isDone = completedEventIds.has(ev.eventId);
+                  const prereqDone = !ev.prerequisiteEventId || completedEventIds.has(ev.prerequisiteEventId);
+                  const isLocked = !prereqDone && !isDone;
+                  const prereqEvent = ev.prerequisiteEventId
+                    ? events.find(e => e.eventId === ev.prerequisiteEventId)
+                    : null;
+
+                  return (
+                    <div key={ev.id} className="flex gap-3">
+                      {/* Step indicator */}
+                      <div className="flex flex-col items-center shrink-0">
+                        <div className={cn(
+                          "w-10 h-10 rounded-full flex items-center justify-center border-2 font-bold text-sm z-10 bg-background",
+                          isDone
+                            ? "border-green-500 bg-green-50 text-green-600"
+                            : isLocked
+                              ? "border-border bg-muted text-muted-foreground"
+                              : "border-primary bg-primary/10 text-primary"
+                        )}>
+                          {isDone
+                            ? <CheckCircle2 className="w-5 h-5 text-green-500" />
+                            : isLocked
+                              ? <Lock className="w-4 h-4" />
+                              : <span>{ev.step ?? idx + 1}</span>
+                          }
+                        </div>
+                      </div>
+
+                      {/* Card */}
+                      <div className={cn(
+                        "flex-1 rounded-2xl border p-4 transition-all mb-1",
+                        isDone
+                          ? "bg-green-50/40 border-green-200/60"
+                          : isLocked
+                            ? "bg-muted/40 border-border/40 opacity-70"
+                            : "bg-card border-border/50 hover:border-primary/30 shadow-sm"
+                      )}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap mb-1">
+                              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                Step {ev.step ?? idx + 1}
+                              </span>
+                              <span className={cn(
+                                "text-[10px] font-semibold px-2 py-0.5 rounded-full",
+                                ev.type === "Consultation"
+                                  ? "bg-blue-100 text-blue-700"
+                                  : ev.type === "Screening"
+                                    ? "bg-teal-100 text-teal-700"
+                                    : ev.type === "Diagnostic"
+                                      ? "bg-purple-100 text-purple-700"
+                                      : ev.type === "Genetic Testing"
+                                        ? "bg-orange-100 text-orange-700"
+                                        : "bg-secondary text-secondary-foreground"
+                              )}>
+                                {ev.type}
+                              </span>
+                              {ev.isRecurring && (
+                                <span className="flex items-center gap-1 text-[10px] text-muted-foreground font-medium">
+                                  <RefreshCw className="w-2.5 h-2.5" />
+                                  Recurring
+                                </span>
+                              )}
+                            </div>
+                            <p className={cn(
+                              "font-semibold text-sm leading-snug",
+                              isDone && "line-through text-muted-foreground",
+                              isLocked && "text-muted-foreground"
+                            )}>
+                              {ev.title}
+                            </p>
+                            <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5">
+                              <span className="text-xs text-muted-foreground">{ev.provider}</span>
+                              {ev.frequency && (
+                                <span className="text-xs font-semibold text-primary/80 flex items-center gap-1">
+                                  <RefreshCw className="w-2.5 h-2.5" />
+                                  {ev.frequency}
+                                </span>
+                              )}
+                              {ev.recommendedStartDate && (
+                                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                  <CalendarIcon className="w-2.5 h-2.5" />
+                                  {format(parseISO(ev.recommendedStartDate), "MMM d, yyyy")}
+                                </span>
+                              )}
+                            </div>
+                            {/* Prerequisite notice */}
+                            {isLocked && prereqEvent && (
+                              <div className="flex items-center gap-1.5 mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                                <Lock className="w-3 h-3 shrink-0" />
+                                <span>Complete <strong>Step {prereqEvent.step ?? ""}: {prereqEvent.title}</strong> first</span>
+                              </div>
+                            )}
+                            {/* Notes */}
+                            {ev.notes && !isLocked && (
+                              <p className="text-xs text-muted-foreground mt-1.5 italic leading-relaxed">{ev.notes}</p>
+                            )}
+                            {/* Clinical reference */}
+                            {ev.clinicalReference && !isLocked && (
+                              <p className="text-[10px] text-muted-foreground/70 mt-1">📋 {ev.clinicalReference}</p>
+                            )}
+                          </div>
+
+                          <div className="shrink-0">
+                            {isDone ? (
+                              <span className="px-3 py-1.5 rounded-xl bg-green-100 text-green-700 font-semibold text-xs whitespace-nowrap">
+                                Done ✓
+                              </span>
+                            ) : isLocked ? (
+                              <span className="px-3 py-1.5 rounded-xl bg-muted text-muted-foreground font-semibold text-xs whitespace-nowrap">
+                                Locked
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => openFeedback(ev)}
+                                className="px-3 py-1.5 rounded-xl bg-primary/10 text-primary font-semibold text-xs hover:bg-primary hover:text-white transition-all whitespace-nowrap"
+                              >
+                                Mark Done
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
           </div>
         )}
       </div>

@@ -19,6 +19,7 @@ export const carePlanEventsTable = pgTable("care_plan_events", {
   id: serial("id").primaryKey(),
   carePlanId: integer("care_plan_id").notNull(),
   eventId: text("event_id").notNull(),
+  step: integer("step"),
   title: text("title").notNull(),
   type: text("type").notNull(),
   provider: text("provider").notNull(),
@@ -27,6 +28,7 @@ export const carePlanEventsTable = pgTable("care_plan_events", {
   isRecurring: boolean("is_recurring").default(false),
   notes: text("notes"),
   clinicalReference: text("clinical_reference"),
+  prerequisiteEventId: text("prerequisite_event_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
