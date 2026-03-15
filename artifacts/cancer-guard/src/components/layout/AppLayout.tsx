@@ -50,7 +50,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
             <ShieldAlert className="w-6 h-6 text-white" />
           </div>
           <span className="font-display font-bold text-2xl tracking-tight text-foreground">
-            Cancer<span className="text-primary">Guard</span>
+            Prevent<span className="text-primary">yx</span>
           </span>
         </div>
 
@@ -135,7 +135,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
       )}>
         <div className="flex items-center gap-2">
           <ShieldAlert className="w-6 h-6 text-primary" />
-          <span className="font-display font-bold text-xl text-foreground">CancerGuard</span>
+          <span className="font-display font-bold text-xl text-foreground">Preventyx</span>
         </div>
         <button 
           onClick={() => setIsMobileMenuOpen(true)}

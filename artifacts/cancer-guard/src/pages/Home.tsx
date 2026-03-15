@@ -25,7 +25,7 @@ export default function Home() {
               <ShieldCheck className="w-7 h-7 text-white" />
             </div>
             <span className="font-display font-bold text-2xl tracking-tight text-foreground">
-              Cancer<span className="text-primary">Guard</span>
+              Prevent<span className="text-primary">yx</span>
             </span>
           </div>
           <div className="flex items-center gap-4">
@@ -153,7 +153,7 @@ export default function Home() {
 
         <div className="mt-32 pt-16 border-t border-border/50">
           <p className="text-center text-sm text-muted-foreground max-w-3xl mx-auto">
-            Disclaimer: CancerGuard provides informational risk assessments based on general guidelines. It is not a diagnostic tool and does not substitute professional medical advice. Always consult with a healthcare provider for medical decisions.
+            Disclaimer: Preventyx provides informational risk assessments based on general guidelines. It is not a diagnostic tool and does not substitute professional medical advice. Always consult with a healthcare provider for medical decisions.
           </p>
         </div>
       </div>

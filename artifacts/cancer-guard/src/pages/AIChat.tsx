@@ -18,7 +18,7 @@ export default function AIChat() {
     {
       id: 'init',
       role: 'agent',
-      content: "Hello! I'm your CancerGuard AI Advisor. I can answer questions about screening guidelines, help interpret risk factors, or provide information on lifestyle prevention. How can I assist you today?"
+      content: "Hello! I'm your Preventyx AI Advisor. I can answer questions about screening guidelines, help interpret risk factors, or provide information on lifestyle prevention. How can I assist you today?"
     }
   ]);
   

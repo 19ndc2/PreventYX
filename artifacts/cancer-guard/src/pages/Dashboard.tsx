@@ -19,7 +19,7 @@ export default function Dashboard() {
   return (
     <div className="space-y-8 pb-12">
       <header>
-        <h1 className="text-3xl font-display font-bold text-foreground">Welcome to CancerGuard</h1>
+        <h1 className="text-3xl font-display font-bold text-foreground">Welcome to Preventyx</h1>
         <p className="text-muted-foreground mt-2">Your personalized prevention and health tracking dashboard.</p>
       </header>
 
