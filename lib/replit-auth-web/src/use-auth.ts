@@ -7,7 +7,7 @@ interface AuthState {
   user: AuthUser | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  login: (redirectAfterLogin?: string) => void;
+  login: () => void;
   logout: () => void;
 }
 
@@ -41,13 +41,9 @@ export function useAuth(): AuthState {
     };
   }, []);
 
-  const login = useCallback((redirectAfterLogin?: string | unknown) => {
-    const base = import.meta.env.BASE_URL.replace(/\/+$/, "");
-    const redirect = typeof redirectAfterLogin === "string" ? redirectAfterLogin : undefined;
-    const returnTo = redirect
-      ? `${base}/${redirect.replace(/^\/+/, "")}`
-      : base || "/";
-    window.location.href = `/api/login?returnTo=${encodeURIComponent(returnTo)}`;
+  const login = useCallback(() => {
+    const base = import.meta.env.BASE_URL.replace(/\/+$/, "") || "/";
+    window.location.href = `/api/login?returnTo=${encodeURIComponent(base)}`;
   }, []);
 
   const logout = useCallback(() => {

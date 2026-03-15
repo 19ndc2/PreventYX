@@ -1,14 +1,10 @@
-import { useEffect } from "react";
-import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
+import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Loader2 } from "lucide-react";
-import { useAuth } from "@workspace/replit-auth-web";
 
 import { AppLayout } from "@/components/layout/AppLayout";
-import { ProtectedRoute } from "@/components/ProtectedRoute";
-import Login from "@/pages/Login";
+import Home from "@/pages/Home";
 import Dashboard from "@/pages/Dashboard";
 import AIChat from "@/pages/AIChat";
 import HealthTracker from "@/pages/HealthTracker";
@@ -25,53 +21,15 @@ const queryClient = new QueryClient({
   },
 });
 
-function AuthGatedHome() {
-  const { isAuthenticated, isLoading } = useAuth();
-  const [, navigate] = useLocation();
-
-  useEffect(() => {
-    if (!isLoading && isAuthenticated) {
-      navigate("/dashboard", { replace: true });
-    }
-  }, [isLoading, isAuthenticated, navigate]);
-
-  if (isLoading || isAuthenticated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-primary animate-spin" />
-      </div>
-    );
-  }
-
-  return <Login />;
-}
-
-function ProtectedDashboard() {
-  return <ProtectedRoute><Dashboard /></ProtectedRoute>;
-}
-
-function ProtectedAIChat() {
-  return <ProtectedRoute><AIChat /></ProtectedRoute>;
-}
-
-function ProtectedHealthTracker() {
-  return <ProtectedRoute><HealthTracker /></ProtectedRoute>;
-}
-
-function ProtectedCarePlan() {
-  return <ProtectedRoute><CarePlan /></ProtectedRoute>;
-}
-
 function Router() {
   return (
     <AppLayout>
       <Switch>
-        <Route path="/" component={AuthGatedHome} />
-        <Route path="/login" component={Login} />
-        <Route path="/dashboard" component={ProtectedDashboard} />
-        <Route path="/chat" component={ProtectedAIChat} />
-        <Route path="/health-tracker" component={ProtectedHealthTracker} />
-        <Route path="/care-plan/:id" component={ProtectedCarePlan} />
+        <Route path="/" component={Home} />
+        <Route path="/dashboard" component={Dashboard} />
+        <Route path="/chat" component={AIChat} />
+        <Route path="/health-tracker" component={HealthTracker} />
+        <Route path="/care-plan/:id" component={CarePlan} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>
