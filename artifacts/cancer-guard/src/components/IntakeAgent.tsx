@@ -11,8 +11,8 @@ import {
   ClipboardList,
   RotateCcw,
 } from "lucide-react";
-import { useListCancerTypes, useListPreventionPathways } from "@workspace/api-client-react";
-import type { CancerType, PreventionPathway } from "@workspace/api-client-react";
+import { useListCancerTypes } from "@workspace/api-client-react";
+import type { CancerType } from "@workspace/api-client-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -22,7 +22,16 @@ interface RiskQuestion {
   factor: string;
 }
 
-type MessageType = "text" | "cancer_cards" | "yesno" | "result" | "spinner";
+type MessageType = "text" | "cancer_cards" | "yesno" | "ai_result" | "spinner";
+
+interface AICarePlanResult {
+  carePlanId: number;
+  riskCategory: string;
+  eligibilityStatus: string;
+  logicRationale: string;
+  cancerTypeName: string;
+  recommendedPathway?: string;
+}
 
 interface Message {
   id: string;
@@ -32,9 +41,7 @@ interface Message {
   cancerTypes?: CancerType[];
   question?: RiskQuestion;
   questionIndex?: number;
-  pathway?: PreventionPathway;
-  cancerType?: CancerType;
-  riskLevel?: string;
+  aiResult?: AICarePlanResult;
 }
 
 // ─── Question Generator ───────────────────────────────────────────────────────
@@ -120,37 +127,15 @@ function buildQuestions(cancerType: CancerType): RiskQuestion[] {
   return questions;
 }
 
-function calculateRiskLevel(questions: RiskQuestion[], answers: boolean[]): "low" | "moderate" | "high" {
-  let score = 0;
-  for (let i = 0; i < Math.min(questions.length, answers.length); i++) {
-    const q = questions[i];
-    const a = answers[i];
-    if (!q.isProtective && a) score++;
-    if (q.isProtective && !a) score++;
-  }
-  if (score <= 1) return "low";
-  if (score <= 3) return "moderate";
-  return "high";
-}
-
-function findBestPathway(pathways: PreventionPathway[], riskLevel: string): PreventionPathway | null {
-  const exact = pathways.find(p => p.riskLevel === riskLevel);
-  if (exact) return exact;
-  if (riskLevel === "low") return pathways.find(p => p.riskLevel === "moderate") ?? pathways[0] ?? null;
-  if (riskLevel === "high") return pathways.find(p => p.riskLevel === "moderate") ?? pathways[pathways.length - 1] ?? null;
-  return pathways[0] ?? null;
-}
-
 // ─── Icon mapping ─────────────────────────────────────────────────────────────
 const CANCER_EMOJI: Record<string, string> = {
   lungs: "🫁", colon: "🩺", ribbon: "🎗️", shield: "🛡️",
   sun: "☀️", female: "💜", droplet: "💧", thyroid: "🦋",
 };
 
-const RISK_COLORS: Record<string, { badge: string; dot: string }> = {
-  low:      { badge: "bg-emerald-50 text-emerald-700 border-emerald-200",  dot: "bg-emerald-500" },
-  moderate: { badge: "bg-amber-50  text-amber-700  border-amber-200",   dot: "bg-amber-500"  },
-  high:     { badge: "bg-red-50    text-red-700    border-red-200",      dot: "bg-red-500"    },
+const RISK_BADGE: Record<string, string> = {
+  Average: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  High:    "bg-red-50 text-red-700 border-red-200",
 };
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -221,48 +206,41 @@ function YesNoButtons({ onAnswer, disabled }: { onAnswer: (yes: boolean) => void
   );
 }
 
-function PathwayResult({ pathway, cancerType, riskLevel }: { pathway: PreventionPathway; cancerType: CancerType; riskLevel: string }) {
-  const colors = RISK_COLORS[riskLevel] ?? RISK_COLORS.moderate;
+function AIResultCard({ result }: { result: AICarePlanResult }) {
+  const badgeStyle = RISK_BADGE[result.riskCategory] ?? RISK_BADGE["Average"];
   return (
     <AgentBubble>
       <div className="space-y-3">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-lg">{CANCER_EMOJI[cancerType.icon ?? ""] ?? "🔬"}</span>
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="w-4 h-4 text-primary flex-shrink-0" />
           <div>
-            <p className="font-bold text-foreground text-sm">{pathway.title}</p>
-            <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border ${colors.badge}`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${colors.dot}`} />
-              {riskLevel.charAt(0).toUpperCase() + riskLevel.slice(1)} Risk
+            <p className="font-bold text-foreground text-sm">{result.cancerTypeName} — Personalized Care Plan Ready</p>
+            <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border mt-0.5 ${badgeStyle}`}>
+              {result.riskCategory} Risk · {result.eligibilityStatus}
             </span>
           </div>
         </div>
 
-        <p className="text-xs text-muted-foreground leading-relaxed">{pathway.description}</p>
-
-        <div className="space-y-1.5">
-          <p className="text-xs font-semibold text-foreground uppercase tracking-wide">Top Actions</p>
-          {(pathway.actions ?? []).slice(0, 3).map((action) => (
-            <div key={action.id} className="flex items-start gap-2 p-2 bg-muted/50 rounded-lg">
-              {action.urgent && <AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0 mt-0.5" />}
-              {!action.urgent && <CheckCircle2 className="w-3.5 h-3.5 text-primary flex-shrink-0 mt-0.5" />}
-              <div>
-                <p className="text-xs font-semibold text-foreground">{action.title}</p>
-                <p className="text-xs text-muted-foreground">{action.frequency}</p>
-              </div>
-            </div>
-          ))}
+        <div className="bg-muted/50 rounded-xl p-3">
+          <p className="text-xs font-semibold text-foreground uppercase tracking-wide mb-1">Clinical Assessment</p>
+          <p className="text-xs text-muted-foreground leading-relaxed">{result.logicRationale}</p>
         </div>
 
-        <div className="pt-1 border-t border-border">
-          <p className="text-xs text-muted-foreground mb-1.5">
-            <span className="font-semibold text-foreground">Screening:</span> {pathway.screeningFrequency}
-          </p>
-        </div>
+        {result.recommendedPathway && (
+          <div className="flex items-center gap-2 text-xs text-primary font-medium">
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            {result.recommendedPathway}
+          </div>
+        )}
 
-        <Link href={`/pathways`}>
+        <p className="text-xs text-muted-foreground">
+          Based on <span className="font-semibold">Cancer Care Ontario</span> guidelines. Your full care plan with scheduled events and required actions is ready below.
+        </p>
+
+        <Link href={`/care-plan/${result.carePlanId}`}>
           <button className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 transition-colors mt-1">
-            View Full Prevention Pathway
             <ArrowRight className="w-4 h-4" />
+            View My Full Care Plan
           </button>
         </Link>
       </div>
@@ -281,16 +259,7 @@ export default function IntakeAgent() {
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [answers, setAnswers] = useState<boolean[]>([]);
   const [answeredIndex, setAnsweredIndex] = useState(-1);
-  const [pathway, setPathway] = useState<PreventionPathway | null>(null);
-  const [riskLevel, setRiskLevel] = useState<string>("");
-  const [fetchingPathway, setFetchingPathway] = useState(false);
   const [carePlanId, setCarePlanId] = useState<number | null>(null);
-  const sessionId = useRef<string>(`session-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-
-  const { data: pathways } = useListPreventionPathways(
-    selectedCancerType ? { cancerTypeId: String(selectedCancerType.id) } : {},
-    { query: { enabled: !!selectedCancerType } }
-  );
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -379,90 +348,55 @@ export default function IntakeAgent() {
         });
         setCurrentQuestion(nextIdx);
       } else {
-        setFetchingPathway(true);
-        addMessage({ role: "agent", type: "text", content: "Thanks for your answers! Calculating your personalized prevention pathway…" });
+        addMessage({ role: "agent", type: "text", content: "Thanks! I'm now searching Cancer Care Ontario guidelines to build your personalized care plan…" });
         addMessage({ role: "agent", type: "spinner", content: "" });
 
-        setTimeout(async () => {
-          const risk = calculateRiskLevel(questions, newAnswers);
-          setRiskLevel(risk);
-          const matched = pathways ? findBestPathway(pathways as PreventionPathway[], risk) : null;
-          setPathway(matched);
-          setFetchingPathway(false);
-
-          setMessages(prev => prev.filter(m => m.type !== "spinner"));
-
-          if (matched && selectedCancerType) {
-            addMessage({
-              role: "agent",
-              type: "result",
-              content: "",
-              pathway: matched,
-              cancerType: selectedCancerType,
-              riskLevel: risk,
+        (async () => {
+          try {
+            const sessionKey = `session-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+            const res = await fetch(`${import.meta.env.BASE_URL}api/agent/intake`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                cancerType: selectedCancerType?.name ?? "Cancer",
+                riskLevel: newAnswers.filter(Boolean).length > 2 ? "high" : newAnswers.filter(Boolean).length > 0 ? "moderate" : "low",
+                answers: newAnswers,
+                questions: questions.map(q => ({ question: q.question, isProtective: q.isProtective })),
+                sessionId: sessionKey,
+              }),
             });
 
-            try {
-              const riskMap: Record<string, string> = {
-                low: "Average",
-                moderate: "Average",
-                high: "High",
+            setMessages(prev => prev.filter(m => m.type !== "spinner"));
+
+            if (res.ok) {
+              const data = await res.json();
+              const result: AICarePlanResult = {
+                carePlanId: data.carePlanId ?? data.id,
+                riskCategory: data.user_profile?.risk_category ?? "Average",
+                eligibilityStatus: data.user_profile?.eligibility_status ?? "",
+                logicRationale: data.user_profile?.logic_rationale ?? "",
+                cancerTypeName: data.user_profile?.cancer_type_name ?? selectedCancerType?.name ?? "",
+                recommendedPathway: data.user_profile?.recommended_pathway,
               };
-              const eligibilityMap: Record<string, string> = {
-                low: "OBSP Average Risk",
-                moderate: "OBSP Average Risk",
-                high: "High-Risk OBSP",
-              };
-              const carePlanPayload = {
-                sessionId: sessionId.current,
-                user_profile: {
-                  risk_category: riskMap[risk] ?? "Average",
-                  eligibility_status: eligibilityMap[risk] ?? "OBSP Average Risk",
-                  logic_rationale: `${selectedCancerType.name} risk assessment: ${risk} risk level based on ${newAnswers.filter(Boolean).length} of ${questions.length} risk factors present.`,
-                  cancer_type_id: selectedCancerType.id,
-                  cancer_type_name: selectedCancerType.name,
-                },
-                care_plan_events: (matched.actions ?? []).map((action, i) => ({
-                  event_id: `evt-${i + 1}`,
-                  title: action.title,
-                  type: action.urgent ? "Screening" : "Prevention",
-                  provider: "Your Primary Care Provider",
-                  frequency: action.frequency,
-                  recommended_start_date: new Date(Date.now() + i * 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-                  is_recurring: true,
-                  notes: action.description ?? null,
-                  clinical_reference: selectedCancerType.name,
-                })),
-                required_actions: (matched.actions ?? [])
-                  .filter(a => a.urgent)
-                  .map(a => ({
-                    action: a.title,
-                    target: selectedCancerType.name,
-                    status: "Pending",
-                    urgency: "High",
-                  })),
-              };
-              const res = await fetch(`${import.meta.env.BASE_URL}api/care-plans`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(carePlanPayload),
+              setCarePlanId(result.carePlanId);
+              addMessage({ role: "agent", type: "ai_result", content: "", aiResult: result });
+            } else {
+              addMessage({
+                role: "agent",
+                type: "text",
+                content: "I had trouble generating your care plan right now. Please try again or visit our Care Pathways section for recommendations.",
               });
-              if (res.ok) {
-                const saved = await res.json();
-                setCarePlanId(saved.id);
-              }
-            } catch {
-              // Non-critical — care plan save failed silently
             }
-          } else {
+          } catch {
+            setMessages(prev => prev.filter(m => m.type !== "spinner"));
             addMessage({
               role: "agent",
               type: "text",
-              content: "I wasn't able to find a specific pathway right now. Please visit our Care Pathways section for full recommendations.",
+              content: "I had trouble connecting to generate your care plan. Please try again shortly.",
             });
           }
           setStage("result");
-        }, 1800);
+        })();
       }
     }, 400);
   };
@@ -475,8 +409,7 @@ export default function IntakeAgent() {
     setCurrentQuestion(0);
     setAnswers([]);
     setAnsweredIndex(-1);
-    setPathway(null);
-    setRiskLevel("");
+    setCarePlanId(null);
 
     setTimeout(() => {
       addMessage({
@@ -544,7 +477,7 @@ export default function IntakeAgent() {
                 <AgentBubble>
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                    <span>Analysing your responses…</span>
+                    <span>Searching Cancer Care Ontario guidelines…</span>
                   </div>
                 </AgentBubble>
               )}
@@ -571,12 +504,8 @@ export default function IntakeAgent() {
                 </div>
               )}
 
-              {msg.role === "agent" && msg.type === "result" && msg.pathway && msg.cancerType && msg.riskLevel && (
-                <PathwayResult
-                  pathway={msg.pathway}
-                  cancerType={msg.cancerType}
-                  riskLevel={msg.riskLevel}
-                />
+              {msg.role === "agent" && msg.type === "ai_result" && msg.aiResult && (
+                <AIResultCard result={msg.aiResult} />
               )}
             </motion.div>
           ))}

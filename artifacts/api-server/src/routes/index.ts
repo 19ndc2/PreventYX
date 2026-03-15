@@ -7,6 +7,7 @@ import riskAssessmentsRouter from "./risk-assessments";
 import chatRouter from "./chat";
 import healthLogsRouter from "./health-logs";
 import carePlansRouter from "./care-plans";
+import agentRouter from "./agent";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use(riskAssessmentsRouter);
 router.use(chatRouter);
 router.use(healthLogsRouter);
 router.use(carePlansRouter);
+router.use(agentRouter);
 
 export default router;
