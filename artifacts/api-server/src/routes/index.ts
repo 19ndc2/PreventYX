@@ -8,6 +8,7 @@ import chatRouter from "./chat";
 import healthLogsRouter from "./health-logs";
 import carePlansRouter from "./care-plans";
 import agentRouter from "./agent";
+import profilesRouter from "./profiles";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use(chatRouter);
 router.use(healthLogsRouter);
 router.use(carePlansRouter);
 router.use(agentRouter);
+router.use(profilesRouter);
 
 export default router;

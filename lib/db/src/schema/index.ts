@@ -4,3 +4,4 @@ export * from "./prevention-pathways";
 export * from "./risk-assessments";
 export * from "./health-logs";
 export * from "./care-plans";
+export * from "./profiles";
