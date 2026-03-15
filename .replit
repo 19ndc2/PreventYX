@@ -24,3 +24,10 @@ expertMode = true
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[userenv]
+
+[userenv.shared]
+PINECONE_INDEX_NAME = "cancer-care-ontario-pathways"
+PINECONE_NAMESPACE = "CancerPathways"
+PINECONE_HOST = "https://cancer-care-ontario-pathways-7k2knno.svc.aped-4627-b74a.pinecone.io"
