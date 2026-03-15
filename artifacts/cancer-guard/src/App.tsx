@@ -8,7 +8,6 @@ import { useAuth } from "@workspace/replit-auth-web";
 
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
-import Home from "@/pages/Home";
 import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import AIChat from "@/pages/AIChat";
@@ -36,7 +35,7 @@ function AuthGatedHome() {
     }
   }, [isLoading, isAuthenticated, navigate]);
 
-  if (isLoading) {
+  if (isLoading || isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="w-8 h-8 text-primary animate-spin" />
@@ -44,9 +43,7 @@ function AuthGatedHome() {
     );
   }
 
-  if (isAuthenticated) return null;
-
-  return <Home />;
+  return <Login />;
 }
 
 function ProtectedDashboard() {

@@ -43,7 +43,7 @@ async function searchPinecone(query: string, topK = 6): Promise<string> {
 
 router.post("/agent/intake", async (req, res) => {
   try {
-    const { cancerType, riskLevel, answers, questions, sessionId, userId, selectedCareOptions } = req.body;
+    const { cancerType, riskLevel, answers, questions, sessionId, userId } = req.body;
 
     if (!cancerType || !sessionId) {
       res.status(422).json({ error: "validation_error", message: "cancerType and sessionId are required" });
@@ -143,19 +143,12 @@ NO two events may share the same date. Events of the same type must be separated
 
 
 
-    const chosenOptions = Array.isArray(selectedCareOptions) && selectedCareOptions.length > 0
-      ? selectedCareOptions.join(", ")
-      : "No specific preferences provided — use all clinically appropriate options from CCO guidelines.";
-
     const userPrompt = `A user has completed the Preventyx intake questionnaire. Generate their personalized care plan.
 
 CANCER TYPE: ${cancerType}
 RISK LEVEL: ${riskLevel}
 USER ANSWERS:
 ${riskAnswered || "No detailed answers provided"}
-
-USER'S SELECTED CARE OPTIONS (they specifically chose these — prioritize generating events for them):
-${chosenOptions}
 
 CANCER CARE ONTARIO GUIDELINES (retrieved from knowledge base):
 ${context}
