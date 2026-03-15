@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useListHealthLogs } from "@workspace/api-client-react";
 import { Link, useLocation } from "wouter";
 import {
   Calendar,
@@ -11,6 +12,7 @@ import {
   MessageSquare,
   AlertCircle,
   CheckCircle2,
+  Check,
   Info,
 } from "lucide-react";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isSameMonth, addMonths, subMonths, isToday, parseISO } from "date-fns";
@@ -93,6 +95,14 @@ export default function Dashboard() {
     staleTime: 60_000,
   });
 
+  const { data: healthLogs } = useListHealthLogs({ sessionId });
+
+  const completedEventIds = new Set(
+    (healthLogs ?? [])
+      .filter(l => l.description?.startsWith("care_plan_event:"))
+      .map(l => l.description!.split(":")[1])
+  );
+
   const events = plan?.events ?? [];
 
   const daysInMonth = eachDayOfInterval({
@@ -111,7 +121,12 @@ export default function Dashboard() {
 
   const upcomingEvents = [...events]
     .filter(ev => ev.recommendedStartDate)
-    .sort((a, b) => new Date(a.recommendedStartDate!).getTime() - new Date(b.recommendedStartDate!).getTime())
+    .sort((a, b) => {
+      const aCompleted = completedEventIds.has(a.eventId) ? 1 : 0;
+      const bCompleted = completedEventIds.has(b.eventId) ? 1 : 0;
+      if (aCompleted !== bCompleted) return aCompleted - bCompleted;
+      return new Date(a.recommendedStartDate!).getTime() - new Date(b.recommendedStartDate!).getTime();
+    })
     .slice(0, 6);
 
   const selectedDayEvents = selectedDay ? getEventsForDay(selectedDay) : [];
@@ -198,6 +213,7 @@ export default function Dashboard() {
                 const dayEvents = getEventsForDay(day);
                 const isSelected = selectedDay && isSameDay(day, selectedDay);
                 const isCurrentDay = isToday(day);
+                const allCompleted = dayEvents.length > 0 && dayEvents.every(ev => completedEventIds.has(ev.eventId));
 
                 return (
                   <button
@@ -215,23 +231,33 @@ export default function Dashboard() {
                         : "border-transparent hover:border-border hover:bg-muted/50"
                     )}
                   >
-                    <span className={cn(
-                      "text-xs font-semibold w-6 h-6 flex items-center justify-center rounded-full",
-                      isCurrentDay ? "bg-primary text-white" : "text-foreground"
-                    )}>
-                      {format(day, "d")}
-                    </span>
+                    <div className="flex items-center justify-between">
+                      <span className={cn(
+                        "text-xs font-semibold w-6 h-6 flex items-center justify-center rounded-full",
+                        isCurrentDay ? "bg-primary text-white" : "text-foreground"
+                      )}>
+                        {format(day, "d")}
+                      </span>
+                      {allCompleted && (
+                        <Check className="w-3 h-3 text-green-500" />
+                      )}
+                    </div>
                     {dayEvents.length > 0 && (
                       <div className="mt-0.5 space-y-0.5">
-                        {dayEvents.slice(0, 2).map(ev => (
-                          <div
-                            key={ev.id}
-                            className={cn(
-                              "w-full h-1.5 rounded-full",
-                              EVENT_TYPE_COLORS[ev.type] ?? "bg-primary"
-                            )}
-                          />
-                        ))}
+                        {dayEvents.slice(0, 2).map(ev => {
+                          const isCompleted = completedEventIds.has(ev.eventId);
+                          return (
+                            <div
+                              key={ev.id}
+                              className={cn(
+                                "w-full h-1.5 rounded-full",
+                                isCompleted
+                                  ? "bg-green-400/50"
+                                  : (EVENT_TYPE_COLORS[ev.type] ?? "bg-primary")
+                              )}
+                            />
+                          );
+                        })}
                         {dayEvents.length > 2 && (
                           <div className="text-[9px] text-muted-foreground font-semibold pl-0.5">+{dayEvents.length - 2}</div>
                         )}
@@ -250,6 +276,10 @@ export default function Dashboard() {
                   {type}
                 </div>
               ))}
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <div className="w-2.5 h-2.5 rounded-full bg-green-400/50" />
+                Completed
+              </div>
             </div>
 
             {/* Selected day events */}
@@ -264,29 +294,51 @@ export default function Dashboard() {
                   <p className="text-sm text-muted-foreground">No events scheduled for this day.</p>
                 ) : (
                   <div className="space-y-2">
-                    {selectedDayEvents.map(ev => (
-                      <button
-                        key={ev.id}
-                        onClick={() => setSelectedEvent(selectedEvent?.id === ev.id ? null : ev)}
-                        className="w-full text-left p-3 rounded-xl border border-border/50 bg-background hover:border-primary/40 hover:bg-primary/5 transition-colors"
-                      >
-                        <div className="flex items-center gap-2 mb-1">
-                          <div className={cn("w-2 h-2 rounded-full shrink-0", EVENT_TYPE_COLORS[ev.type] ?? "bg-primary")} />
-                          <span className="font-semibold text-sm">{ev.title}</span>
-                          <span className="ml-auto text-xs text-muted-foreground">{ev.type}</span>
-                        </div>
-                        {selectedEvent?.id === ev.id && (
-                          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-2 space-y-1 text-xs text-muted-foreground pl-4">
-                            <p><span className="font-semibold text-foreground">Provider:</span> {ev.provider}</p>
-                            <p><span className="font-semibold text-foreground">Frequency:</span> {ev.frequency}</p>
-                            {ev.notes && <p><span className="font-semibold text-foreground">Notes:</span> {ev.notes}</p>}
-                            {ev.clinicalReference && (
-                              <p className="italic text-[11px]">{ev.clinicalReference}</p>
+                    {selectedDayEvents.map(ev => {
+                      const isCompleted = completedEventIds.has(ev.eventId);
+                      return (
+                        <button
+                          key={ev.id}
+                          onClick={() => setSelectedEvent(selectedEvent?.id === ev.id ? null : ev)}
+                          className={cn(
+                            "w-full text-left p-3 rounded-xl border transition-colors",
+                            isCompleted
+                              ? "border-green-200/60 bg-green-50/40 hover:border-green-300"
+                              : "border-border/50 bg-background hover:border-primary/40 hover:bg-primary/5"
+                          )}
+                        >
+                          <div className="flex items-center gap-2 mb-1">
+                            <div className={cn(
+                              "w-2 h-2 rounded-full shrink-0",
+                              isCompleted ? "bg-green-400" : (EVENT_TYPE_COLORS[ev.type] ?? "bg-primary")
+                            )} />
+                            <span className={cn(
+                              "font-semibold text-sm",
+                              isCompleted && "line-through text-muted-foreground"
+                            )}>{ev.title}</span>
+                            {isCompleted && (
+                              <span className="ml-auto px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-[10px] font-semibold flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3" />
+                                Completed
+                              </span>
                             )}
-                          </motion.div>
-                        )}
-                      </button>
-                    ))}
+                            {!isCompleted && (
+                              <span className="ml-auto text-xs text-muted-foreground">{ev.type}</span>
+                            )}
+                          </div>
+                          {selectedEvent?.id === ev.id && (
+                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-2 space-y-1 text-xs text-muted-foreground pl-4">
+                              <p><span className="font-semibold text-foreground">Provider:</span> {ev.provider}</p>
+                              <p><span className="font-semibold text-foreground">Frequency:</span> {ev.frequency}</p>
+                              {ev.notes && <p><span className="font-semibold text-foreground">Notes:</span> {ev.notes}</p>}
+                              {ev.clinicalReference && (
+                                <p className="italic text-[11px]">{ev.clinicalReference}</p>
+                              )}
+                            </motion.div>
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </motion.div>
@@ -338,19 +390,35 @@ export default function Dashboard() {
                 <p className="text-sm text-muted-foreground">No upcoming events.</p>
               ) : (
                 <div className="space-y-2.5">
-                  {upcomingEvents.map(ev => (
-                    <div key={ev.id} className="flex items-start gap-2.5">
-                      <div className={cn("w-2 h-2 rounded-full mt-1.5 shrink-0", EVENT_TYPE_COLORS[ev.type] ?? "bg-primary")} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium leading-tight truncate">{ev.title}</p>
-                        {ev.recommendedStartDate && (
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {format(parseISO(ev.recommendedStartDate), "MMM d, yyyy")}
-                          </p>
-                        )}
+                  {upcomingEvents.map(ev => {
+                    const isCompleted = completedEventIds.has(ev.eventId);
+                    return (
+                      <div key={ev.id} className={cn("flex items-start gap-2.5", isCompleted && "opacity-60")}>
+                        <div className={cn(
+                          "w-2 h-2 rounded-full mt-1.5 shrink-0",
+                          isCompleted ? "bg-green-400" : (EVENT_TYPE_COLORS[ev.type] ?? "bg-primary")
+                        )} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <p className={cn(
+                              "text-sm font-medium leading-tight truncate",
+                              isCompleted && "line-through text-muted-foreground"
+                            )}>{ev.title}</p>
+                            {isCompleted && (
+                              <span className="shrink-0 px-1.5 py-0.5 rounded-md bg-green-100 text-green-700 text-[9px] font-bold">
+                                Done
+                              </span>
+                            )}
+                          </div>
+                          {ev.recommendedStartDate && (
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {format(parseISO(ev.recommendedStartDate), "MMM d, yyyy")}
+                            </p>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
