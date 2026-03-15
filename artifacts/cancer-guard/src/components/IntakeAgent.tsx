@@ -260,6 +260,7 @@ export default function IntakeAgent() {
   const [answers, setAnswers] = useState<boolean[]>([]);
   const [answeredIndex, setAnsweredIndex] = useState(-1);
   const [carePlanId, setCarePlanId] = useState<number | null>(null);
+  const [questionSource, setQuestionSource] = useState<"pinecone" | "static">("static");
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -294,36 +295,79 @@ export default function IntakeAgent() {
     }
   }, [loadingTypes, cancerTypes]);
 
-  const handleCancerSelect = (type: CancerType) => {
+  const handleCancerSelect = async (type: CancerType) => {
     setSelectedCancerType(type);
+    setStage("questioning");
     addMessage({ role: "user", type: "text", content: `${CANCER_EMOJI[type.icon ?? ""] ?? "🔬"} ${type.name}` });
+    addMessage({
+      role: "agent",
+      type: "text",
+      content: "Personalizing your questions…",
+    });
+    addMessage({ role: "agent", type: "spinner", content: "" });
 
-    setTimeout(() => {
-      addMessage({
-        role: "agent",
-        type: "text",
-        content: `${type.name} is an important one to be proactive about. I'll ask you a few quick questions to personalize your prevention pathway. Please answer honestly — there are no wrong answers.`,
+    let qs: RiskQuestion[];
+    let source: "pinecone" | "static" = "static";
+
+    try {
+      const res = await fetch(`${import.meta.env.BASE_URL}api/agent/questions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cancerType: type.name }),
       });
-    }, 500);
 
-    const qs = buildQuestions(type);
+      if (res.ok) {
+        const data = await res.json();
+        const validItems = (data.questions ?? []).filter(
+          (q: unknown): q is { question: string; isProtective: boolean } =>
+            q != null &&
+            typeof q === "object" &&
+            "question" in q &&
+            typeof (q as Record<string, unknown>).question === "string" &&
+            ((q as Record<string, unknown>).question as string).trim().length > 0 &&
+            "isProtective" in q &&
+            typeof (q as Record<string, unknown>).isProtective === "boolean"
+        );
+        if (validItems.length >= 3) {
+          qs = validItems.slice(0, 5).map((q) => ({
+            question: q.question,
+            isProtective: q.isProtective,
+            factor: "pinecone-sourced",
+          }));
+          source = "pinecone";
+        } else {
+          qs = buildQuestions(type);
+        }
+      } else {
+        qs = buildQuestions(type);
+      }
+    } catch {
+      qs = buildQuestions(type);
+    }
+
     setQuestions(qs);
+    setQuestionSource(source);
     setCurrentQuestion(0);
     setAnswers([]);
     setAnsweredIndex(-1);
 
-    setTimeout(() => {
-      if (qs.length > 0) {
-        addMessage({
-          role: "agent",
-          type: "yesno",
-          content: qs[0].question,
-          question: qs[0],
-          questionIndex: 0,
-        });
-        setStage("questioning");
-      }
-    }, 1400);
+    setMessages(prev => prev.filter(m => m.type !== "spinner"));
+
+    addMessage({
+      role: "agent",
+      type: "text",
+      content: `${type.name} is an important one to be proactive about. I'll ask you a few quick questions to personalize your prevention pathway. Please answer honestly — there are no wrong answers.`,
+    });
+
+    if (qs.length > 0) {
+      addMessage({
+        role: "agent",
+        type: "yesno",
+        content: qs[0].question,
+        question: qs[0],
+        questionIndex: 0,
+      });
+    }
   };
 
   const handleAnswer = (yes: boolean, qIdx: number) => {
@@ -363,6 +407,7 @@ export default function IntakeAgent() {
                 answers: newAnswers,
                 questions: questions.map(q => ({ question: q.question, isProtective: q.isProtective })),
                 sessionId: sessionKey,
+                questionSource,
               }),
             });
 
@@ -410,6 +455,7 @@ export default function IntakeAgent() {
     setAnswers([]);
     setAnsweredIndex(-1);
     setCarePlanId(null);
+    setQuestionSource("static");
 
     setTimeout(() => {
       addMessage({

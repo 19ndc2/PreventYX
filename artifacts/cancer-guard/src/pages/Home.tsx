@@ -11,6 +11,7 @@ import {
   LogOut,
   User as UserIcon,
   CheckCircle2,
+  XCircle,
 } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { getSessionId } from "@/lib/utils";
@@ -32,14 +33,20 @@ const CANCER_TYPES = [
   { label: "Cervical Lymphadenopathy", icon: "🫀" },
 ];
 
-type Stage = "not_authed" | "cancer_selection" | "generating" | "done";
-type MsgType = "text" | "cancer_buttons" | "login_prompt" | "spinner" | "done";
+interface RiskQuestion {
+  question: string;
+  isProtective: boolean;
+}
+
+type Stage = "not_authed" | "cancer_selection" | "loading_questions" | "questioning" | "generating" | "done";
+type MsgType = "text" | "cancer_buttons" | "login_prompt" | "spinner" | "done" | "yesno";
 
 interface Message {
   id: string;
   role: "agent" | "user";
   type: MsgType;
   content: string;
+  questionIndex?: number;
 }
 
 function makeId() {
@@ -52,6 +59,18 @@ function agentMsg(content: string, type: MsgType = "text"): Message {
 
 function userMsg(content: string): Message {
   return { id: makeId(), role: "user", type: "text", content };
+}
+
+function isValidQuestion(q: unknown): q is RiskQuestion {
+  return (
+    q != null &&
+    typeof q === "object" &&
+    "question" in q &&
+    typeof (q as Record<string, unknown>).question === "string" &&
+    ((q as Record<string, unknown>).question as string).trim().length > 0 &&
+    "isProtective" in q &&
+    typeof (q as Record<string, unknown>).isProtective === "boolean"
+  );
 }
 
 const FEATURES = [
@@ -81,10 +100,16 @@ export default function Home() {
   const [stage, setStage] = useState<Stage>(isAuthenticated ? "cancer_selection" : "not_authed");
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [selectedCancerType, setSelectedCancerType] = useState<string>("");
+  const [questions, setQuestions] = useState<RiskQuestion[]>([]);
+  const [answers, setAnswers] = useState<boolean[]>([]);
+  const [answeredIndex, setAnsweredIndex] = useState(-1);
+  const [questionSource, setQuestionSource] = useState<"pinecone" | "static">("static");
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const questionsAbortRef = useRef<AbortController | null>(null);
+  const answerLockRef = useRef<Set<number>>(new Set());
 
-  // When auth state resolves, update the chat
   useEffect(() => {
     if (isLoading) return;
     if (isAuthenticated && stage === "not_authed") {
@@ -109,18 +134,112 @@ export default function Home() {
   const handleCancerSelect = async (type: string) => {
     if (stage !== "cancer_selection") return;
 
+    if (questionsAbortRef.current) {
+      questionsAbortRef.current.abort();
+    }
+    const abortController = new AbortController();
+    questionsAbortRef.current = abortController;
+    answerLockRef.current = new Set();
+
+    setSelectedCancerType(type);
+    setStage("loading_questions");
     setMessages(prev => [
       ...prev,
       userMsg(type),
-      agentMsg(`Great choice — building your **${type}** prevention plan based on Cancer Care Ontario guidelines…`, "spinner"),
+      agentMsg("Personalizing your questions…", "spinner"),
     ]);
-    setStage("generating");
-    await runGeneration(type);
+
+    const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+    let qs: RiskQuestion[] = [];
+    let source: "pinecone" | "static" = "static";
+
+    try {
+      const res = await fetch(`${base}/api/agent/questions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cancerType: type }),
+        signal: abortController.signal,
+      });
+
+      if (abortController.signal.aborted) return;
+
+      if (res.ok) {
+        const data = await res.json();
+        const validItems = (data.questions ?? []).filter(isValidQuestion);
+        if (validItems.length >= 3) {
+          qs = validItems.slice(0, 5);
+          source = "pinecone";
+        }
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+    }
+
+    if (qs.length === 0) {
+      qs = [
+        { question: "Do you have a family history of this type of cancer?", isProtective: false },
+        { question: "Are you 50 years of age or older?", isProtective: false },
+        { question: "Do you smoke or use tobacco products?", isProtective: false },
+      ];
+      source = "static";
+    }
+
+    setQuestions(qs);
+    setQuestionSource(source);
+    setAnswers([]);
+    setAnsweredIndex(-1);
+
+    setMessages(prev => [
+      ...prev.filter(m => m.type !== "spinner"),
+      agentMsg(`Great — I'll ask you a few quick questions about **${type}** to personalize your prevention plan. Just answer Yes or No.`),
+    ]);
+
+    setStage("questioning");
+
+    setTimeout(() => {
+      setMessages(prev => [
+        ...prev,
+        { id: makeId(), role: "agent", type: "yesno", content: qs[0].question, questionIndex: 0 },
+      ]);
+    }, 500);
   };
 
-  const runGeneration = async (cancerType: string) => {
+  const handleAnswer = (yes: boolean, qIdx: number) => {
+    if (answeredIndex >= qIdx) return;
+    if (answerLockRef.current.has(qIdx)) return;
+    answerLockRef.current.add(qIdx);
+    setAnsweredIndex(qIdx);
+
+    const newAnswers = [...answers, yes];
+    setAnswers(newAnswers);
+
+    setMessages(prev => [...prev, userMsg(yes ? "Yes" : "No")]);
+
+    const nextIdx = qIdx + 1;
+
+    setTimeout(() => {
+      if (nextIdx < questions.length) {
+        setMessages(prev => [
+          ...prev,
+          { id: makeId(), role: "agent", type: "yesno" as const, content: questions[nextIdx].question, questionIndex: nextIdx },
+        ]);
+      } else {
+        setMessages(prev => [
+          ...prev,
+          agentMsg(`Thanks! I'm now searching Cancer Care Ontario guidelines to build your personalized **${selectedCancerType}** care plan…`, "spinner"),
+        ]);
+        setStage("generating");
+        runGeneration(selectedCancerType, newAnswers);
+      }
+    }, 400);
+  };
+
+  const runGeneration = async (cancerType: string, finalAnswers?: boolean[]) => {
     setIsProcessing(true);
     const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+    const answersToSend = finalAnswers ?? answers;
+    const yesCount = answersToSend.filter(Boolean).length;
+    const riskLevel = yesCount > 2 ? "high" : yesCount > 0 ? "moderate" : "low";
 
     try {
       const planRes = await fetch(`${base}/api/agent/intake`, {
@@ -128,10 +247,11 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           cancerType,
-          riskLevel: "average",
+          riskLevel,
           sessionId,
-          answers: [],
-          questions: [],
+          answers: answersToSend,
+          questions: questions.map(q => ({ question: q.question, isProtective: q.isProtective })),
+          questionSource,
         }),
       });
 
@@ -352,6 +472,34 @@ export default function Home() {
                           </div>
                         )}
 
+                        {/* Yes/No question */}
+                        {msg.type === "yesno" && typeof msg.questionIndex === "number" && (
+                          <div className="flex flex-col gap-2">
+                            <div className="px-3.5 py-2.5 rounded-2xl rounded-tl-none bg-white border border-border/50 shadow-sm text-sm text-foreground">
+                              <span className="text-[10px] text-muted-foreground block mb-1">
+                                Question {msg.questionIndex + 1} of {questions.length}
+                              </span>
+                              {msg.content}
+                            </div>
+                            {stage === "questioning" && answeredIndex < msg.questionIndex && (
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => handleAnswer(true, msg.questionIndex!)}
+                                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-primary/10 text-primary font-semibold text-xs hover:bg-primary hover:text-white transition-all"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5" /> Yes
+                                </button>
+                                <button
+                                  onClick={() => handleAnswer(false, msg.questionIndex!)}
+                                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-muted text-muted-foreground font-semibold text-xs hover:bg-foreground/10 hover:text-foreground transition-all"
+                                >
+                                  <XCircle className="w-3.5 h-3.5" /> No
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
                         {/* Spinner */}
                         {msg.type === "spinner" && (
                           <div className="px-3.5 py-2.5 rounded-2xl rounded-tl-none bg-white border border-border/50 shadow-sm flex items-center gap-2 text-sm text-muted-foreground">
@@ -396,6 +544,9 @@ export default function Home() {
                 )}
                 {stage === "not_authed" && (
                   <p className="text-xs text-muted-foreground">Log in to unlock your personalized care plan</p>
+                )}
+                {(stage === "loading_questions" || stage === "questioning") && (
+                  <p className="text-xs text-muted-foreground">Answer a few quick questions to personalize your plan</p>
                 )}
                 {stage === "generating" && (
                   <p className="text-xs text-muted-foreground">Analysing Cancer Care Ontario guidelines…</p>

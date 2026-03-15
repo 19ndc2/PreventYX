@@ -41,16 +41,94 @@ async function searchPinecone(query: string, topK = 6): Promise<string> {
     .join("\n\n---\n\n");
 }
 
+router.post("/agent/questions", async (req, res) => {
+  try {
+    const { cancerType } = req.body;
+
+    if (!cancerType) {
+      res.status(422).json({ error: "validation_error", message: "cancerType is required" });
+      return;
+    }
+
+    const searchQuery = `${cancerType} cancer risk factors screening eligibility criteria Ontario pathways`;
+    const context = await searchPinecone(searchQuery, 4);
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-5.2",
+      max_completion_tokens: 2048,
+      messages: [
+        {
+          role: "system",
+          content: `You are a clinical intake assistant for Preventyx, a Canadian cancer prevention platform.
+Given Cancer Care Ontario (CCO) guideline excerpts about a specific cancer type, generate 3–5 Yes/No screening questions that identify the most important risk factors and protective factors for that cancer.
+
+RULES:
+- Each question must be answerable with Yes or No.
+- Questions should be clinically relevant, drawn from the risk factors and screening criteria in the provided documents.
+- Include at least one question about a protective factor (e.g., vaccination, healthy behavior) if applicable. Mark it with "isProtective": true.
+- Questions should be conversational and empathetic, not clinical jargon.
+- Return ONLY a JSON array — no markdown, no explanation.
+- Each element: { "question": "...", "isProtective": boolean }
+- Return between 3 and 5 questions.`,
+        },
+        {
+          role: "user",
+          content: `Cancer type: ${cancerType}
+
+Cancer Care Ontario guideline excerpts:
+${context}
+
+Generate 3–5 Yes/No risk screening questions for this cancer type based on these guidelines.`,
+        },
+      ],
+    });
+
+    const raw = completion.choices[0]?.message?.content ?? "";
+
+    let questions: Array<{ question: string; isProtective: boolean }>;
+    try {
+      const jsonMatch = raw.match(/\[[\s\S]*\]/);
+      questions = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
+    } catch {
+      console.error("Failed to parse AI questions response:", raw);
+      res.status(500).json({ error: "parse_error", message: "AI returned invalid JSON" });
+      return;
+    }
+
+    if (!Array.isArray(questions)) {
+      res.status(500).json({ error: "invalid_response", message: "AI did not return an array" });
+      return;
+    }
+
+    const validated = questions.filter(
+      (q): q is { question: string; isProtective: boolean } =>
+        q != null &&
+        typeof q.question === "string" &&
+        q.question.trim().length > 0 &&
+        typeof q.isProtective === "boolean"
+    );
+
+    if (validated.length < 3) {
+      res.status(500).json({ error: "insufficient_questions", message: `AI returned only ${validated.length} valid questions (minimum 3)` });
+      return;
+    }
+
+    res.json({ questions: validated.slice(0, 5), source: "pinecone" });
+  } catch (err) {
+    console.error("Agent questions error:", err);
+    res.status(500).json({ error: "internal_error", message: "Failed to generate questions" });
+  }
+});
+
 router.post("/agent/intake", async (req, res) => {
   try {
-    const { cancerType, riskLevel, answers, questions, sessionId, userId } = req.body;
+    const { cancerType, riskLevel, answers, questions, sessionId, userId, questionSource } = req.body;
 
     if (!cancerType || !sessionId) {
       res.status(422).json({ error: "validation_error", message: "cancerType and sessionId are required" });
       return;
     }
 
-    // Build a rich query from the user's intake data
     const riskAnswered = (questions ?? [])
       .map((q: { question: string }, i: number) => `- ${q.question}: ${answers?.[i] ? "Yes" : "No"}`)
       .join("\n");
@@ -95,7 +173,13 @@ PREREQUISITE LOGIC (enforce ordering):
 EVENT SPACING — NEVER schedule two events less than 4 weeks apart unless they are of clearly different types (e.g., a GP referral followed by a blood test). All screening/surveillance events must respect the intervals above.`;
 
 
+    const questionSourceNote = questionSource === "pinecone"
+      ? "NOTE: The intake questions below were dynamically generated from Pinecone-sourced Cancer Care Ontario guidelines specific to this cancer type. The questions already reflect the key risk factors from the CCO documents, so weight the user's answers accordingly when determining risk."
+      : "NOTE: The intake questions below were generated from a standard risk factor template.";
+
     const userPrompt = `A user has completed the Preventyx intake questionnaire. Generate their personalized care plan.
+
+${questionSourceNote}
 
 CANCER TYPE: ${cancerType}
 RISK LEVEL: ${riskLevel}
