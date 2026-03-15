@@ -15,7 +15,11 @@ const CANCER_TYPES = [
   { label: "Endometrial Cancer", icon: "🌸" },
   { label: "Thyroid Cancer", icon: "🟢" },
   { label: "Bladder Cancer", icon: "🔶" },
-  { label: "Head & Neck Cancer", icon: "🔴" },
+  { label: "Oropharyngeal Cancer", icon: "🔴" },
+  { label: "Ovarian Cancer", icon: "🪷" },
+  { label: "Liver Cancer (HCC)", icon: "🟤" },
+  { label: "Thymic Cancer", icon: "⚪" },
+  { label: "Cervical Lymphadenopathy", icon: "🫀" },
 ];
 
 type MsgType = "text" | "cancer_buttons" | "spinner" | "done";
