@@ -8,7 +8,7 @@ import {
   XCircle,
   ShieldCheck,
   AlertTriangle,
-  ChevronRight,
+  ClipboardList,
   RotateCcw,
 } from "lucide-react";
 import { useListCancerTypes, useListPreventionPathways } from "@workspace/api-client-react";
@@ -284,6 +284,8 @@ export default function IntakeAgent() {
   const [pathway, setPathway] = useState<PreventionPathway | null>(null);
   const [riskLevel, setRiskLevel] = useState<string>("");
   const [fetchingPathway, setFetchingPathway] = useState(false);
+  const [carePlanId, setCarePlanId] = useState<number | null>(null);
+  const sessionId = useRef<string>(`session-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
   const { data: pathways } = useListPreventionPathways(
     selectedCancerType ? { cancerTypeId: String(selectedCancerType.id) } : {},
@@ -381,7 +383,7 @@ export default function IntakeAgent() {
         addMessage({ role: "agent", type: "text", content: "Thanks for your answers! Calculating your personalized prevention pathway…" });
         addMessage({ role: "agent", type: "spinner", content: "" });
 
-        setTimeout(() => {
+        setTimeout(async () => {
           const risk = calculateRiskLevel(questions, newAnswers);
           setRiskLevel(risk);
           const matched = pathways ? findBestPathway(pathways as PreventionPathway[], risk) : null;
@@ -399,6 +401,59 @@ export default function IntakeAgent() {
               cancerType: selectedCancerType,
               riskLevel: risk,
             });
+
+            try {
+              const riskMap: Record<string, string> = {
+                low: "Average",
+                moderate: "Average",
+                high: "High",
+              };
+              const eligibilityMap: Record<string, string> = {
+                low: "OBSP Average Risk",
+                moderate: "OBSP Average Risk",
+                high: "High-Risk OBSP",
+              };
+              const carePlanPayload = {
+                sessionId: sessionId.current,
+                user_profile: {
+                  risk_category: riskMap[risk] ?? "Average",
+                  eligibility_status: eligibilityMap[risk] ?? "OBSP Average Risk",
+                  logic_rationale: `${selectedCancerType.name} risk assessment: ${risk} risk level based on ${newAnswers.filter(Boolean).length} of ${questions.length} risk factors present.`,
+                  cancer_type_id: selectedCancerType.id,
+                  cancer_type_name: selectedCancerType.name,
+                },
+                care_plan_events: (matched.actions ?? []).map((action, i) => ({
+                  event_id: `evt-${i + 1}`,
+                  title: action.title,
+                  type: action.urgent ? "Screening" : "Prevention",
+                  provider: "Your Primary Care Provider",
+                  frequency: action.frequency,
+                  recommended_start_date: new Date(Date.now() + i * 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+                  is_recurring: true,
+                  notes: action.description ?? null,
+                  clinical_reference: selectedCancerType.name,
+                })),
+                required_actions: (matched.actions ?? [])
+                  .filter(a => a.urgent)
+                  .map(a => ({
+                    action: a.title,
+                    target: selectedCancerType.name,
+                    status: "Pending",
+                    urgency: "High",
+                  })),
+              };
+              const res = await fetch(`${import.meta.env.BASE_URL}api/care-plans`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(carePlanPayload),
+              });
+              if (res.ok) {
+                const saved = await res.json();
+                setCarePlanId(saved.id);
+              }
+            } catch {
+              // Non-critical — care plan save failed silently
+            }
           } else {
             addMessage({
               role: "agent",
@@ -528,8 +583,16 @@ export default function IntakeAgent() {
         </AnimatePresence>
       </div>
 
-      {/* Footer hint */}
-      <div className="px-4 py-2 border-t border-border/50 bg-white/60">
+      {/* Footer */}
+      <div className="px-4 py-2.5 border-t border-border/50 bg-white/60 space-y-2">
+        {stage === "result" && carePlanId && (
+          <Link href={`/care-plan/${carePlanId}`}>
+            <button className="w-full flex items-center justify-center gap-2 py-2 px-4 rounded-xl bg-primary text-white text-xs font-semibold hover:bg-primary/90 transition-colors">
+              <ClipboardList className="w-4 h-4" />
+              View Your Full Care Plan
+            </button>
+          </Link>
+        )}
         <p className="text-[11px] text-muted-foreground text-center">
           For informational purposes only — not a substitute for medical advice.
         </p>

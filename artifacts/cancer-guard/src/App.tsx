@@ -11,6 +11,7 @@ import CancerTypes from "@/pages/CancerTypes";
 import Pathways from "@/pages/Pathways";
 import AIChat from "@/pages/AIChat";
 import HealthTracker from "@/pages/HealthTracker";
+import CarePlan from "@/pages/CarePlan";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -34,6 +35,7 @@ function Router() {
         <Route path="/pathways" component={Pathways} />
         <Route path="/chat" component={AIChat} />
         <Route path="/health-tracker" component={HealthTracker} />
+        <Route path="/care-plan/:id" component={CarePlan} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>
