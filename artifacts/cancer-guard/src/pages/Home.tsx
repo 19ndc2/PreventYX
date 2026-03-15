@@ -1,9 +1,11 @@
 import { Link } from "wouter";
 import { motion } from "framer-motion";
-import { ArrowRight, ShieldCheck, Activity, BrainCircuit } from "lucide-react";
+import { ArrowRight, ShieldCheck, Activity, BrainCircuit, LogIn, LogOut, User } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { useAuth } from "@workspace/replit-auth-web";
 
 export default function Home() {
+  const { user, isAuthenticated, isLoading, login, logout } = useAuth();
   return (
     <div className="min-h-screen bg-background relative overflow-hidden">
       {/* Abstract Background */}
@@ -26,9 +28,44 @@ export default function Home() {
               Cancer<span className="text-primary">Guard</span>
             </span>
           </div>
-          <Link href="/dashboard" className="font-semibold text-muted-foreground hover:text-primary transition-colors">
-            Go to Dashboard
-          </Link>
+          <div className="flex items-center gap-4">
+            <Link href="/dashboard" className="font-semibold text-muted-foreground hover:text-primary transition-colors">
+              Go to Dashboard
+            </Link>
+            {!isLoading && (
+              isAuthenticated && user ? (
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-secondary/60 border border-secondary">
+                    <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
+                      {user.profileImageUrl ? (
+                        <img src={user.profileImageUrl} alt="Profile" className="w-full h-full object-cover" />
+                      ) : (
+                        <User className="w-4 h-4 text-primary" />
+                      )}
+                    </div>
+                    <span className="text-sm font-semibold text-foreground">
+                      {user.firstName ?? user.email ?? "User"}
+                    </span>
+                  </div>
+                  <button
+                    onClick={logout}
+                    className="flex items-center gap-2 px-3 py-2 rounded-xl text-muted-foreground hover:text-destructive hover:bg-destructive/10 font-medium text-sm transition-colors"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Log out
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={login}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-white font-semibold text-sm hover:bg-primary/90 transition-colors shadow-sm shadow-primary/20"
+                >
+                  <LogIn className="w-4 h-4" />
+                  Log in
+                </button>
+              )
+            )}
+          </div>
         </nav>
 
         <div className="grid lg:grid-cols-2 gap-16 items-center">

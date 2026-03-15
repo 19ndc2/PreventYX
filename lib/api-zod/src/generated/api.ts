@@ -16,6 +16,60 @@ export const HealthCheckResponse = zod.object({
 });
 
 /**
+ * @summary Get the currently authenticated user
+ */
+export const GetCurrentAuthUserResponse = zod.object({
+  user: zod.union([
+    zod.object({
+      id: zod.string(),
+      email: zod.string().nullish(),
+      firstName: zod.string().nullish(),
+      lastName: zod.string().nullish(),
+      profileImageUrl: zod.string().nullish(),
+    }),
+    zod.null(),
+  ]),
+});
+
+/**
+ * @summary Start the browser OIDC login flow
+ */
+export const BeginBrowserLoginQueryParams = zod.object({
+  returnTo: zod.coerce.string().optional(),
+});
+
+/**
+ * @summary Complete the browser OIDC login flow
+ */
+export const HandleBrowserLoginCallbackQueryParams = zod.object({
+  code: zod.coerce.string().optional(),
+  state: zod.coerce.string().optional(),
+});
+
+/**
+ * @summary Exchange a mobile OIDC code for a session token
+ */
+
+export const ExchangeMobileAuthorizationCodeBody = zod.object({
+  code: zod.string().min(1),
+  code_verifier: zod.string().min(1),
+  redirect_uri: zod.string().url().min(1),
+  state: zod.string().min(1),
+  nonce: zod.string().min(1).optional(),
+});
+
+export const ExchangeMobileAuthorizationCodeResponse = zod.object({
+  token: zod.string(),
+});
+
+/**
+ * @summary Delete a mobile session token
+ */
+export const LogoutMobileSessionResponse = zod.object({
+  success: zod.boolean(),
+});
+
+/**
  * Returns all available cancer types with risk factors
  * @summary List all cancer types
  */

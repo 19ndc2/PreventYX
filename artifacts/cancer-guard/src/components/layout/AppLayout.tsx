@@ -9,9 +9,13 @@ import {
   MessageSquare, 
   HeartPulse,
   Menu,
-  X
+  X,
+  LogIn,
+  LogOut,
+  User
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@workspace/replit-auth-web";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -26,6 +30,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const [location] = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const { user, isAuthenticated, isLoading, login, logout } = useAuth();
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20);
@@ -79,10 +84,46 @@ export function AppLayout({ children }: { children: ReactNode }) {
           })}
         </nav>
         
-        <div className="p-6 mt-auto">
-          <div className="bg-secondary/50 rounded-2xl p-4 border border-secondary text-sm">
-            <p className="font-semibold text-foreground mb-1">Confidential & Secure</p>
-            <p className="text-muted-foreground text-xs leading-relaxed">Your data is stored anonymously for your privacy.</p>
+        <div className="p-4 mt-auto border-t border-border/50 space-y-3">
+          {!isLoading && (
+            isAuthenticated && user ? (
+              <div className="flex items-center gap-3 px-2 py-2 rounded-xl">
+                <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden flex-shrink-0">
+                  {user.profileImageUrl ? (
+                    <img src={user.profileImageUrl} alt="Profile" className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="w-5 h-5 text-primary" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-sm text-foreground truncate">
+                    {user.firstName ? `${user.firstName}${user.lastName ? ` ${user.lastName}` : ""}` : (user.email ?? "User")}
+                  </p>
+                  {user.email && user.firstName && (
+                    <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                  )}
+                </div>
+                <button
+                  onClick={logout}
+                  className="p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-colors flex-shrink-0"
+                  title="Log out"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={login}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-primary/10 text-primary font-semibold hover:bg-primary/20 transition-colors"
+              >
+                <LogIn className="w-5 h-5" />
+                Log in
+              </button>
+            )
+          )}
+          <div className="bg-secondary/50 rounded-xl p-3 border border-secondary text-xs">
+            <p className="font-semibold text-foreground mb-0.5">Confidential & Secure</p>
+            <p className="text-muted-foreground leading-relaxed">Your data is stored securely for your privacy.</p>
           </div>
         </div>
       </aside>
@@ -146,6 +187,41 @@ export function AppLayout({ children }: { children: ReactNode }) {
                     </Link>
                   );
                 })}
+                <div className="pt-4 border-t border-border mt-4">
+                  {!isLoading && (isAuthenticated && user ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-muted/50">
+                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
+                          {user.profileImageUrl ? (
+                            <img src={user.profileImageUrl} alt="Profile" className="w-full h-full object-cover" />
+                          ) : (
+                            <User className="w-4 h-4 text-primary" />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold truncate">
+                            {user.firstName ?? user.email ?? "User"}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={logout}
+                        className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-destructive hover:bg-destructive/10 font-medium transition-colors"
+                      >
+                        <LogOut className="w-5 h-5" />
+                        Log out
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={login}
+                      className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-primary/10 text-primary font-semibold"
+                    >
+                      <LogIn className="w-5 h-5" />
+                      Log in
+                    </button>
+                  ))}
+                </div>
               </nav>
             </motion.div>
           </>
