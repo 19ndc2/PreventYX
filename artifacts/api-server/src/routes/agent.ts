@@ -60,39 +60,87 @@ router.post("/agent/intake", async (req, res) => {
     // Search Pinecone for relevant Cancer Care Ontario guidelines
     const context = await searchPinecone(searchQuery);
 
-    // Build the structured care plan using the AI
+    // Compute concrete anchor dates relative to today
+    const today = new Date();
+    const fmt = (d: Date) => d.toISOString().split("T")[0];
+    const addDays  = (d: Date, n: number) => new Date(d.getTime() + n * 86_400_000);
+    const addMonths = (d: Date, m: number) => { const x = new Date(d); x.setMonth(x.getMonth() + m); return x; };
+    const addYears  = (d: Date, y: number) => { const x = new Date(d); x.setFullYear(x.getFullYear() + y); return x; };
+
+    const t2w   = fmt(addDays(today, 14));    // 2 weeks out — GP referral / eligibility visit
+    const t6w   = fmt(addDays(today, 42));    // 6 weeks — specialist booking
+    const t3m   = fmt(addMonths(today, 3));   // 3 months — initial specialist consult
+    const t5m   = fmt(addMonths(today, 5));   // 5 months — diagnostic workup / biopsy
+    const t6m   = fmt(addMonths(today, 6));   // 6 months — first follow-up
+    const t1y   = fmt(addYears(today, 1));    // 1 year — annual recurring event
+    const t2y   = fmt(addYears(today, 2));    // 2 years — biennial screening (FIT, mammogram)
+    const t5y   = fmt(addYears(today, 5));    // 5 years — HPV / colonoscopy interval
+
     const systemPrompt = `You are a clinical decision support agent for Preventyx, a Canadian cancer prevention platform.
-Your role is to generate a structured, personalized care plan based on Cancer Care Ontario (CCO) guidelines retrieved from a knowledge base.
+Your role is to generate a structured, personalized care plan based on Cancer Care Ontario (CCO) guidelines.
 
 IMPORTANT RULES:
 - Only use information from the provided Cancer Care Ontario documents.
 - Always recommend consulting a healthcare provider.
 - Output ONLY valid JSON — no markdown, no explanation, no preamble.
-- Dates should use YYYY-MM-DD format. Today is ${new Date().toISOString().split("T")[0]}.
-- Be specific to the user's risk level and cancer type.
+- Today's date is ${fmt(today)}. All dates must be in YYYY-MM-DD format and in the future.
+- CRITICAL: Events must be spread across a REALISTIC clinical timeframe — months to years apart, NOT days or weeks apart (except the very first GP referral).
 
-OFFICIAL CCO SCREENING INTERVALS (strictly enforce these — never schedule events closer together than stated):
-- Breast Cancer (average risk, ages 40-74): Mammogram every 2 YEARS. First event ~1 month from today. Next event 2 years later.
-- Breast Cancer (high risk, ages 30-69): Annual mammogram + breast MRI. Events every 12 MONTHS, staggered 6 months apart.
-- Cervical Cancer (HPV screening, ages 25-70): HPV test every 5 YEARS (updated March 2025). First event ~2 months from today.
-- Colorectal Cancer (average risk, ages 50-74): FIT (Fecal Immunochemical Test) kit every 2 YEARS. Colonoscopy only if high-risk (family history): every 5-10 YEARS.
-- Lung Cancer (ages 55-80, must be heavy smoker 20+ pack-years): Annual low-dose CT (LDCT). Eligibility assessment MUST come first as an event, 2 weeks from today, before any LDCT.
+━━━ REALISTIC DATE ANCHORS (use these exact dates for the events below) ━━━
+• GP/Eligibility referral visit:  ${t2w}   (2 weeks from today)
+• Specialist booking confirmation: ${t6w}   (6 weeks from today)
+• First specialist consultation:   ${t3m}   (3 months from today)
+• Diagnostic workup / imaging:     ${t5m}   (5 months from today)
+• First follow-up / surveillance:  ${t6m}   (6 months from today)
+• Annual recurrence:               ${t1y}   (1 year from today)
+• Biennial recurrence (2-year):    ${t2y}   (2 years from today)
+• 5-year recurrence:               ${t5y}   (5 years from today)
 
-CANCERS WITH NO ORGANIZED ONTARIO SCREENING PROGRAM (Prostate, Esophageal, Endometrial, Thyroid, Bladder, Oropharyngeal, Ovarian, Liver/HCC, Thymic, Cervical Lymphadenopathy):
-- These require a GP referral → specialist assessment pathway.
-- Event 1 (ALWAYS first): "Family Doctor Referral Consultation" — 2-4 weeks from today.
-- Event 2: Specialist consultation or diagnostic workup — 6-8 weeks from today.
-- Event 3 (if applicable): Follow-up imaging/biopsy — 3-6 months from today.
-- Ongoing surveillance events: space at minimum 6-12 months apart based on the guidelines in the documents.
-- Do NOT invent organized population screening intervals that do not exist in Ontario for these cancers.
+━━━ ORGANIZED CCO SCREENING PROGRAMS — MANDATORY INTERVALS ━━━
+BREAST CANCER (average risk, ages 40-74):
+  Step 1 — OBSP Mammogram:              date = ${t2w}, frequency = "Every 2 Years"
+  Step 2 — Second OBSP Mammogram:       date = ${t2y}, frequency = "Every 2 Years", is_recurring = true
+  (Do NOT add any breast event between these two dates.)
 
-PREREQUISITE LOGIC (enforce ordering):
-- For Lung: Risk assessment questionnaire event MUST precede any LDCT scan event.
-- For Colorectal high-risk: FIT test or GP consultation MUST precede colonoscopy referral.
-- For all non-organized-program cancers: GP referral MUST be Event 1 before any specialist or test.
-- Use event notes to clearly state "Complete this step before proceeding to the next event."
+BREAST CANCER (high risk, ages 30-69):
+  Step 1 — Annual Mammogram + MRI:      date = ${t2w}, frequency = "Annually"
+  Step 2 — Next Annual Mammogram + MRI: date = ${t1y}, frequency = "Annually", is_recurring = true
 
-EVENT SPACING — NEVER schedule two events less than 4 weeks apart unless they are of clearly different types (e.g., a GP referral followed by a blood test). All screening/surveillance events must respect the intervals above.`;
+CERVICAL CANCER (HPV screening, ages 25-70 — updated March 2025):
+  Step 1 — HPV Primary Screening Test:  date = ${t3m}, frequency = "Every 5 Years"
+  Step 2 — Next HPV Screening:          date = ${t5y}, frequency = "Every 5 Years", is_recurring = true
+  (HPV replaced Pap test. Do NOT add any cervical event between these two dates.)
+
+COLORECTAL CANCER (average risk, ages 50-74):
+  Step 1 — FIT (Fecal Immunochemical Test) Kit: date = ${t3m}, frequency = "Every 2 Years"
+  Step 2 — Second FIT Kit:              date = ${t2y}, frequency = "Every 2 Years", is_recurring = true
+  HIGH-RISK ONLY (1st-degree relative diagnosed <60): replace FIT with Colonoscopy, date = ${t3m}, next = ${t2y}
+
+LUNG CANCER (ages 55-80, heavy smokers 20+ pack-years ONLY):
+  Step 1 — Eligibility Assessment (PLCOm2012 Risk Calculator): date = ${t2w}, frequency = "Once", prerequisite = null
+  Step 2 — Low-Dose CT (LDCT) Scan:    date = ${t3m}, frequency = "Annually",   prerequisite = "evt-1"
+  Step 3 — Annual LDCT Follow-up:      date = ${t1y}, frequency = "Annually",   prerequisite = "evt-2", is_recurring = true
+
+━━━ NO ORGANIZED ONTARIO PROGRAM — REFERRAL PATHWAY ━━━
+For: Prostate, Esophageal, Endometrial, Thyroid, Bladder, Oropharyngeal, Ovarian, Liver/HCC, Thymic, Cervical Lymphadenopathy
+
+Use this EXACT timeline (do not compress it — the gaps reflect real Ontario wait times):
+  Step 1 — Family Doctor Referral Consultation: date = ${t2w}, frequency = "Once", type = "Consultation"
+  Step 2 — Specialist Consultation Booking:     date = ${t6w}, frequency = "Once", type = "Consultation", prerequisite = "evt-1"
+  Step 3 — Specialist Consultation Appointment: date = ${t3m}, frequency = "Once", type = "Consultation", prerequisite = "evt-2"
+  Step 4 — Diagnostic Imaging / Workup:         date = ${t5m}, frequency = "Once", type = "Diagnostic",   prerequisite = "evt-3"
+  Step 5 — Annual Surveillance Follow-up:       date = ${t1y}, frequency = "Annually", type = "Screening", prerequisite = "evt-4", is_recurring = true
+
+Do NOT invent organized screening programs that do not exist in Ontario for these cancer types.
+
+━━━ PREREQUISITE RULES ━━━
+- Set prerequisite_event_id = null for Step 1 always.
+- Set prerequisite_event_id = the event_id of the previous step for all subsequent steps.
+- Notes for each step must say "Complete this step before proceeding to Step [N+1]." where applicable.
+
+━━━ ABSOLUTE SPACING RULE ━━━
+NO two events may share the same date. Events of the same type must be separated by their full recurrence interval (months or years). The minimum gap between any two consecutive events is 3 weeks.`;
+
 
 
     const userPrompt = `A user has completed the Preventyx intake questionnaire. Generate their personalized care plan.
