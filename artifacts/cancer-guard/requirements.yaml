@@ -1,0 +1,20 @@
+packages:
+  "framer-motion": "Smooth page transitions and staggered list animations for a premium feel"
+  "recharts": "Visualizing health tracking data and risk score metrics on the dashboard"
+  "date-fns": "Formatting health log dates and screening timelines"
+  "uuid": "Generating unique session IDs for anonymous user tracking"
+  "@types/uuid": "Type definitions for uuid"
+  "clsx": "Utility for constructing className strings conditionally"
+  "tailwind-merge": "Utility for merging tailwind classes without style conflicts"
+
+images:
+  - path: "artifacts/cancer-guard/public/images/hero-abstract.png"
+    description: "A calming, light, abstract 3D fluid wave background in soft whites, teals, and pale blues. Medical, pure, clean, hopeful, professional."
+    aspect_ratio: "16:9"
+  - path: "artifacts/cancer-guard/public/images/ai-advisor.png"
+    description: "A friendly, semi-abstract minimalist glowing orb or soft glowing friendly robot face in teal and blue tones on a white background, representing an AI medical advisor."
+    aspect_ratio: "1:1"
+
+notes:
+  - Using generated API hooks from @workspace/api-client-react
+  - Session ID is generated locally and stored in localStorage to persist anonymous user state across reloads

@@ -1,15 +1,24 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: CancerGuard API - Cancer Prevention Platform for Canadians
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: cancer-types
+    description: Cancer type information and risk factors
+  - name: prevention-pathways
+    description: Preventative care pathways
+  - name: risk-assessment
+    description: User risk assessments
+  - name: chat
+    description: AI chat with Flowise backend
+  - name: health-logs
+    description: User health tracking logs
 paths:
   /healthz:
     get:
@@ -24,6 +33,188 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /cancer-types:
+    get:
+      operationId: listCancerTypes
+      tags: [cancer-types]
+      summary: List all cancer types
+      description: Returns all available cancer types with risk factors
+      responses:
+        "200":
+          description: List of cancer types
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CancerType"
+
+  /cancer-types/{id}:
+    get:
+      operationId: getCancerType
+      tags: [cancer-types]
+      summary: Get cancer type details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Cancer type details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancerType"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /prevention-pathways:
+    get:
+      operationId: listPreventionPathways
+      tags: [prevention-pathways]
+      summary: List prevention pathways
+      description: Returns prevention pathways, optionally filtered by cancer type
+      parameters:
+        - name: cancerTypeId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: riskLevel
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/RiskLevel"
+      responses:
+        "200":
+          description: List of prevention pathways
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PreventionPathway"
+
+  /risk-assessments:
+    post:
+      operationId: createRiskAssessment
+      tags: [risk-assessment]
+      summary: Submit a risk assessment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRiskAssessmentRequest"
+      responses:
+        "201":
+          description: Risk assessment created with recommended pathways
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RiskAssessmentResult"
+        "422":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    get:
+      operationId: listRiskAssessments
+      tags: [risk-assessment]
+      summary: List user risk assessments
+      parameters:
+        - name: sessionId
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of risk assessments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RiskAssessmentResult"
+
+  /chat:
+    post:
+      operationId: sendChatMessage
+      tags: [chat]
+      summary: Send a message to the AI agent
+      description: Proxies the message to the configured Flowise backend
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatRequest"
+      responses:
+        "200":
+          description: AI agent response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatResponse"
+        "503":
+          description: AI backend unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /health-logs:
+    post:
+      operationId: createHealthLog
+      tags: [health-logs]
+      summary: Create a health log entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateHealthLogRequest"
+      responses:
+        "201":
+          description: Health log entry created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthLog"
+    get:
+      operationId: listHealthLogs
+      tags: [health-logs]
+      summary: List health log entries
+      parameters:
+        - name: sessionId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: logType
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/HealthLogType"
+      responses:
+        "200":
+          description: List of health logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HealthLog"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +225,321 @@ components:
       required:
         - status
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      required:
+        - error
+
+    RiskLevel:
+      type: string
+      enum: [low, moderate, high, very_high]
+
+    HealthLogType:
+      type: string
+      enum: [symptom, appointment, screening, medication, lifestyle, note]
+
+    CancerType:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        canadianIncidenceRate:
+          type: string
+          description: Incidence rate per 100,000 Canadians
+        commonRiskFactors:
+          type: array
+          items:
+            type: string
+        earlySymptoms:
+          type: array
+          items:
+            type: string
+        screeningAge:
+          type: integer
+          description: Recommended age to start screening
+        icon:
+          type: string
+      required:
+        - id
+        - name
+        - description
+        - canadianIncidenceRate
+        - commonRiskFactors
+        - earlySymptoms
+        - screeningAge
+
+    PreventionPathway:
+      type: object
+      properties:
+        id:
+          type: integer
+        cancerTypeId:
+          type: integer
+        cancerTypeName:
+          type: string
+        riskLevel:
+          $ref: "#/components/schemas/RiskLevel"
+        riskPercentageMin:
+          type: number
+        riskPercentageMax:
+          type: number
+        title:
+          type: string
+        description:
+          type: string
+        actions:
+          type: array
+          items:
+            $ref: "#/components/schemas/PreventionAction"
+        screeningFrequency:
+          type: string
+        lifestyleChanges:
+          type: array
+          items:
+            type: string
+        priority:
+          type: integer
+      required:
+        - id
+        - cancerTypeId
+        - cancerTypeName
+        - riskLevel
+        - title
+        - description
+        - actions
+        - screeningFrequency
+        - lifestyleChanges
+        - priority
+
+    PreventionAction:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+        frequency:
+          type: string
+        provider:
+          type: string
+          description: Type of healthcare provider (GP, oncologist, etc.)
+        urgent:
+          type: boolean
+      required:
+        - id
+        - title
+        - description
+        - frequency
+        - urgent
+
+    CreateRiskAssessmentRequest:
+      type: object
+      properties:
+        sessionId:
+          type: string
+        age:
+          type: integer
+        sex:
+          type: string
+          enum: [male, female, other]
+        province:
+          type: string
+        familyHistory:
+          type: array
+          items:
+            type: string
+          description: Cancer types in family history
+        smokingStatus:
+          type: string
+          enum: [never, former, current]
+        alcoholConsumption:
+          type: string
+          enum: [none, light, moderate, heavy]
+        physicalActivity:
+          type: string
+          enum: [sedentary, light, moderate, active]
+        bmi:
+          type: number
+        diet:
+          type: string
+          enum: [poor, average, good, excellent]
+        sunExposure:
+          type: string
+          enum: [minimal, moderate, high, very_high]
+        hpvVaccinated:
+          type: boolean
+        lastScreeningDate:
+          type: string
+          format: date
+        existingConditions:
+          type: array
+          items:
+            type: string
+      required:
+        - sessionId
+        - age
+        - sex
+
+    RiskAssessmentResult:
+      type: object
+      properties:
+        id:
+          type: integer
+        sessionId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        overallRiskScore:
+          type: number
+          description: 0-100 overall risk score
+        riskFactors:
+          type: array
+          items:
+            $ref: "#/components/schemas/RiskFactor"
+        recommendedPathways:
+          type: array
+          items:
+            $ref: "#/components/schemas/PreventionPathway"
+        summary:
+          type: string
+        nextSteps:
+          type: array
+          items:
+            type: string
+      required:
+        - id
+        - sessionId
+        - createdAt
+        - overallRiskScore
+        - riskFactors
+        - recommendedPathways
+        - summary
+        - nextSteps
+
+    RiskFactor:
+      type: object
+      properties:
+        cancerTypeId:
+          type: integer
+        cancerTypeName:
+          type: string
+        riskScore:
+          type: number
+        riskLevel:
+          $ref: "#/components/schemas/RiskLevel"
+        contributingFactors:
+          type: array
+          items:
+            type: string
+      required:
+        - cancerTypeId
+        - cancerTypeName
+        - riskScore
+        - riskLevel
+        - contributingFactors
+
+    ChatRequest:
+      type: object
+      properties:
+        message:
+          type: string
+        sessionId:
+          type: string
+        context:
+          type: object
+          description: Optional context such as user's risk profile
+          additionalProperties: true
+      required:
+        - message
+        - sessionId
+
+    ChatResponse:
+      type: object
+      properties:
+        response:
+          type: string
+        sessionId:
+          type: string
+        sources:
+          type: array
+          items:
+            type: string
+      required:
+        - response
+        - sessionId
+
+    CreateHealthLogRequest:
+      type: object
+      properties:
+        sessionId:
+          type: string
+        logType:
+          $ref: "#/components/schemas/HealthLogType"
+        title:
+          type: string
+        description:
+          type: string
+        date:
+          type: string
+          format: date
+        value:
+          type: string
+          description: Optional numeric or text value
+        unit:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+      required:
+        - sessionId
+        - logType
+        - title
+        - date
+
+    HealthLog:
+      type: object
+      properties:
+        id:
+          type: integer
+        sessionId:
+          type: string
+        logType:
+          $ref: "#/components/schemas/HealthLogType"
+        title:
+          type: string
+        description:
+          type: string
+        date:
+          type: string
+          format: date
+        value:
+          type: string
+        unit:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - sessionId
+        - logType
+        - title
+        - date
+        - createdAt
