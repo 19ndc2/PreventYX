@@ -6,9 +6,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from "@/components/layout/AppLayout";
 import Home from "@/pages/Home";
 import Dashboard from "@/pages/Dashboard";
-import RiskAssessment from "@/pages/RiskAssessment";
-import CancerTypes from "@/pages/CancerTypes";
-import Pathways from "@/pages/Pathways";
 import AIChat from "@/pages/AIChat";
 import HealthTracker from "@/pages/HealthTracker";
 import CarePlan from "@/pages/CarePlan";
@@ -30,9 +27,6 @@ function Router() {
       <Switch>
         <Route path="/" component={Home} />
         <Route path="/dashboard" component={Dashboard} />
-        <Route path="/risk-assessment" component={RiskAssessment} />
-        <Route path="/cancer-types" component={CancerTypes} />
-        <Route path="/pathways" component={Pathways} />
         <Route path="/chat" component={AIChat} />
         <Route path="/health-tracker" component={HealthTracker} />
         <Route path="/care-plan/:id" component={CarePlan} />

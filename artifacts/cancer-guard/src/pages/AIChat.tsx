@@ -70,7 +70,7 @@ export default function AIChat() {
         </div>
         <div>
           <h2 className="font-display font-bold text-lg leading-tight">AI Prevention Advisor</h2>
-          <p className="text-xs text-muted-foreground">Powered by Flowise • Always active</p>
+          <p className="text-xs text-muted-foreground">Powered by Cancer Care Ontario guidelines • Always active</p>
         </div>
       </div>
 

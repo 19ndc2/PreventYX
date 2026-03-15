@@ -1,29 +1,24 @@
 import { ReactNode, useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { 
-  ShieldAlert, 
-  LayoutDashboard, 
-  Activity, 
-  FileText, 
-  MessageSquare, 
+import {
+  ShieldCheck,
+  LayoutDashboard,
+  MessageSquare,
   HeartPulse,
   Menu,
   X,
   LogIn,
   LogOut,
-  User
+  User,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@workspace/replit-auth-web";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/risk-assessment", label: "Risk Assessment", icon: Activity },
-  { href: "/cancer-types", label: "Cancer Library", icon: FileText },
-  { href: "/pathways", label: "Care Pathways", icon: HeartPulse },
   { href: "/chat", label: "AI Advisor", icon: MessageSquare },
-  { href: "/health-tracker", label: "Health Tracker", icon: ShieldAlert },
+  { href: "/health-tracker", label: "Health Tracker", icon: HeartPulse },
 ];
 
 export function AppLayout({ children }: { children: ReactNode }) {
@@ -38,38 +33,37 @@ export function AppLayout({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // Don't show layout on landing page
   if (location === "/") return <>{children}</>;
 
   return (
     <div className="min-h-screen bg-background flex">
       {/* Desktop Sidebar */}
-      <aside className="hidden md:flex w-72 flex-col fixed inset-y-0 left-0 z-50 bg-card border-r border-border/50 shadow-[4px_0_24px_rgba(0,0,0,0.02)]">
+      <aside className="hidden md:flex w-64 flex-col fixed inset-y-0 left-0 z-50 bg-card border-r border-border/50 shadow-[4px_0_24px_rgba(0,0,0,0.02)]">
         <div className="p-6 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-teal-500 flex items-center justify-center shadow-lg shadow-primary/20">
-            <ShieldAlert className="w-6 h-6 text-white" />
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-teal-500 flex items-center justify-center shadow-md shadow-primary/20">
+            <ShieldCheck className="w-5 h-5 text-white" />
           </div>
-          <span className="font-display font-bold text-2xl tracking-tight text-foreground">
+          <span className="font-display font-bold text-xl tracking-tight text-foreground">
             Prevent<span className="text-primary">yx</span>
           </span>
         </div>
 
-        <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
+        <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
           {NAV_ITEMS.map((item) => {
             const isActive = location === item.href || location.startsWith(`${item.href}/`);
             return (
-              <Link 
-                key={item.href} 
+              <Link
+                key={item.href}
                 href={item.href}
                 className={cn(
                   "flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 group relative",
-                  isActive 
-                    ? "bg-primary/10 text-primary font-semibold" 
+                  isActive
+                    ? "bg-primary/10 text-primary font-semibold"
                     : "text-muted-foreground hover:bg-muted/50 hover:text-foreground font-medium"
                 )}
               >
                 {isActive && (
-                  <motion.div 
+                  <motion.div
                     layoutId="activeNav"
                     className="absolute left-0 w-1.5 h-8 bg-primary rounded-r-full"
                     initial={{ opacity: 0 }}
@@ -83,16 +77,16 @@ export function AppLayout({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
-        
+
         <div className="p-4 mt-auto border-t border-border/50 space-y-3">
           {!isLoading && (
             isAuthenticated && user ? (
               <div className="flex items-center gap-3 px-2 py-2 rounded-xl">
-                <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden flex-shrink-0">
+                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden flex-shrink-0">
                   {user.profileImageUrl ? (
                     <img src={user.profileImageUrl} alt="Profile" className="w-full h-full object-cover" />
                   ) : (
-                    <User className="w-5 h-5 text-primary" />
+                    <User className="w-4 h-4 text-primary" />
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -134,10 +128,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
         scrolled ? "bg-white/80 backdrop-blur-lg border-b border-border shadow-sm" : "bg-transparent"
       )}>
         <div className="flex items-center gap-2">
-          <ShieldAlert className="w-6 h-6 text-primary" />
+          <ShieldCheck className="w-6 h-6 text-primary" />
           <span className="font-display font-bold text-xl text-foreground">Preventyx</span>
         </div>
-        <button 
+        <button
           onClick={() => setIsMobileMenuOpen(true)}
           className="p-2 -mr-2 text-foreground"
         >
@@ -145,18 +139,18 @@ export function AppLayout({ children }: { children: ReactNode }) {
         </button>
       </header>
 
-      {/* Mobile Menu Overlay */}
+      {/* Mobile Menu */}
       <AnimatePresence>
         {isMobileMenuOpen && (
           <>
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsMobileMenuOpen(false)}
               className="fixed inset-0 bg-black/20 backdrop-blur-sm z-[60] md:hidden"
             />
-            <motion.div 
+            <motion.div
               initial={{ x: "100%" }}
               animate={{ x: 0 }}
               exit={{ x: "100%" }}
@@ -173,8 +167,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 {NAV_ITEMS.map((item) => {
                   const isActive = location === item.href;
                   return (
-                    <Link 
-                      key={item.href} 
+                    <Link
+                      key={item.href}
                       href={item.href}
                       onClick={() => setIsMobileMenuOpen(false)}
                       className={cn(
@@ -198,11 +192,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
                             <User className="w-4 h-4 text-primary" />
                           )}
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold truncate">
-                            {user.firstName ?? user.email ?? "User"}
-                          </p>
-                        </div>
+                        <p className="text-sm font-semibold truncate">
+                          {user.firstName ?? user.email ?? "User"}
+                        </p>
                       </div>
                       <button
                         onClick={logout}
@@ -229,7 +221,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
       </AnimatePresence>
 
       {/* Main Content */}
-      <main className="flex-1 md:pl-72 flex flex-col min-h-screen">
+      <main className="flex-1 md:pl-64 flex flex-col min-h-screen">
         <div className="flex-1 w-full max-w-6xl mx-auto p-4 md:p-8 pt-20 md:pt-8">
           <AnimatePresence mode="wait">
             <motion.div
@@ -237,7 +229,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.3 }}
+              transition={{ duration: 0.25 }}
               className="h-full"
             >
               {children}

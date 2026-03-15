@@ -1,177 +1,434 @@
 import { useState } from "react";
-import { useListHealthLogs, useCreateHealthLog, HealthLogType } from "@workspace/api-client-react";
-import { getSessionId } from "@/lib/utils";
+import { useQuery } from "@tanstack/react-query";
+import { useListHealthLogs, useCreateHealthLog } from "@workspace/api-client-react";
+import { getSessionId, cn } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
-import { Card, CardContent } from "@/components/ui/Card";
-import { format } from "date-fns";
-import { Plus, Calendar as CalendarIcon, Pill, Activity, Stethoscope, FileText, ChevronDown } from "lucide-react";
+import { format, parseISO } from "date-fns";
+import {
+  Plus,
+  Calendar as CalendarIcon,
+  Stethoscope,
+  Activity,
+  FileText,
+  CheckCircle2,
+  Clock,
+  Star,
+  X,
+  ChevronDown,
+} from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+
+interface CarePlanEvent {
+  id: number;
+  eventId: string;
+  title: string;
+  type: string;
+  provider: string;
+  frequency: string;
+  recommendedStartDate: string | null;
+  notes: string | null;
+}
+
+type FeedbackRating = "great" | "okay" | "issues";
+
+interface FeedbackModal {
+  event: CarePlanEvent;
+}
+
+const RATING_OPTIONS: { value: FeedbackRating; label: string; emoji: string; color: string }[] = [
+  { value: "great", label: "All good", emoji: "😊", color: "border-green-300 bg-green-50 hover:bg-green-100 text-green-700" },
+  { value: "okay", label: "It was okay", emoji: "😐", color: "border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-700" },
+  { value: "issues", label: "Had issues", emoji: "😟", color: "border-red-300 bg-red-50 hover:bg-red-100 text-red-700" },
+];
+
+function fetchLatestCarePlan(sessionId: string) {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+  const planId = localStorage.getItem("preventyx_care_plan_id");
+
+  if (planId) {
+    return fetch(`${base}/api/care-plans/${planId}`).then(r => r.ok ? r.json() : null);
+  }
+
+  return fetch(`${base}/api/care-plans?sessionId=${sessionId}`)
+    .then(r => r.ok ? r.json() : [])
+    .then(async (plans: { id: number }[]) => {
+      if (!plans.length) return null;
+      const latest = plans[plans.length - 1];
+      return fetch(`${base}/api/care-plans/${latest.id}`).then(r => r.ok ? r.json() : null);
+    });
+}
 
 export default function HealthTracker() {
   const sessionId = getSessionId();
-  const { data: logs, isLoading, refetch } = useListHealthLogs({ sessionId });
-  const mutation = useCreateHealthLog();
-  
-  const [isAdding, setIsAdding] = useState(false);
-  const [formData, setFormData] = useState({
-    logType: 'note' as HealthLogType,
-    title: '',
-    date: new Date().toISOString().split('T')[0],
-    description: ''
+  const { data: logs, isLoading: logsLoading, refetch } = useListHealthLogs({ sessionId });
+  const createLog = useCreateHealthLog();
+
+  const { data: plan, isLoading: planLoading } = useQuery({
+    queryKey: ["care-plan-tracker", sessionId],
+    queryFn: () => fetchLatestCarePlan(sessionId),
+    staleTime: 60_000,
   });
 
-  const getIconForType = (type: string) => {
-    switch(type) {
-      case 'medication': return <Pill className="w-4 h-4" />;
-      case 'appointment': return <Stethoscope className="w-4 h-4" />;
-      case 'screening': return <Activity className="w-4 h-4" />;
-      default: return <FileText className="w-4 h-4" />;
-    }
+  const [feedbackModal, setFeedbackModal] = useState<FeedbackModal | null>(null);
+  const [rating, setRating] = useState<FeedbackRating | null>(null);
+  const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const [isAddingManual, setIsAddingManual] = useState(false);
+  const [manualForm, setManualForm] = useState({
+    logType: "screening" as const,
+    title: "",
+    date: new Date().toISOString().split("T")[0],
+    description: "",
+  });
+
+  const completedEventIds = new Set(
+    (logs ?? [])
+      .filter(l => l.description?.startsWith("care_plan_event:"))
+      .map(l => l.description!.split(":")[1])
+  );
+
+  const events: CarePlanEvent[] = plan?.events ?? [];
+
+  const openFeedback = (event: CarePlanEvent) => {
+    setFeedbackModal({ event });
+    setRating(null);
+    setNotes("");
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    mutation.mutate({
-      data: { sessionId, ...formData }
+  const submitFeedback = async () => {
+    if (!feedbackModal || !rating) return;
+    setSubmitting(true);
+
+    createLog.mutate({
+      data: {
+        sessionId,
+        logType: "screening",
+        title: `Completed: ${feedbackModal.event.title}`,
+        date: new Date().toISOString().split("T")[0],
+        description: `care_plan_event:${feedbackModal.event.eventId}\nRating: ${rating}\n${notes ? "Notes: " + notes : ""}`,
+      }
     }, {
       onSuccess: () => {
-        setIsAdding(false);
-        setFormData({ logType: 'note', title: '', date: new Date().toISOString().split('T')[0], description: '' });
+        refetch();
+        setFeedbackModal(null);
+        setSubmitting(false);
+      },
+      onError: () => setSubmitting(false),
+    });
+  };
+
+  const handleManualSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    createLog.mutate({
+      data: { sessionId, ...manualForm }
+    }, {
+      onSuccess: () => {
+        setIsAddingManual(false);
+        setManualForm({ logType: "screening", title: "", date: new Date().toISOString().split("T")[0], description: "" });
         refetch();
       }
     });
   };
 
+  const visibleLogs = (logs ?? []).filter(l => !l.description?.startsWith("care_plan_event:"));
+  const completionLogs = (logs ?? []).filter(l => l.description?.startsWith("care_plan_event:"));
+
   return (
-    <div className="max-w-4xl mx-auto pb-12">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
+    <div className="max-w-4xl mx-auto pb-12 space-y-8">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-display font-bold text-foreground">Health Tracker</h1>
-          <p className="text-muted-foreground mt-1">Log symptoms, appointments, and lifestyle changes.</p>
+          <h1 className="text-2xl font-display font-bold text-foreground">Health Tracker</h1>
+          <p className="text-muted-foreground mt-1 text-sm">Mark tests as done and log health events.</p>
         </div>
-        <Button onClick={() => setIsAdding(!isAdding)} className="gap-2">
-          {isAdding ? "Cancel" : <><Plus className="w-4 h-4" /> Add Entry</>}
+        <Button onClick={() => setIsAddingManual(!isAddingManual)} variant="outline" className="gap-2">
+          {isAddingManual ? "Cancel" : <><Plus className="w-4 h-4" /> Add Entry</>}
         </Button>
       </div>
 
+      {/* Manual entry form */}
       <AnimatePresence>
-        {isAdding && (
-          <motion.div 
-            initial={{ opacity: 0, height: 0, marginBottom: 0 }}
-            animate={{ opacity: 1, height: "auto", marginBottom: 32 }}
-            exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+        {isAddingManual && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
             className="overflow-hidden"
           >
-            <Card className="border-primary/20 shadow-md shadow-primary/5">
-              <CardContent className="p-6">
-                <form onSubmit={handleSubmit} className="space-y-4">
-                  <div className="grid sm:grid-cols-3 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold">Entry Type</label>
-                      <div className="relative">
-                        <select 
-                          value={formData.logType}
-                          onChange={e => setFormData(prev => ({...prev, logType: e.target.value as HealthLogType}))}
-                          className="w-full p-3 rounded-xl border border-border bg-card appearance-none pr-10 focus:ring-2 focus:ring-primary outline-none"
-                        >
-                          {Object.values(HealthLogType).map(t => (
-                            <option key={t} value={t} className="capitalize">{t}</option>
-                          ))}
-                        </select>
-                        <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-                      </div>
-                    </div>
-                    <div className="space-y-2 sm:col-span-2">
-                      <label className="text-sm font-semibold">Date</label>
-                      <input 
-                        type="date" 
-                        required
-                        value={formData.date}
-                        onChange={e => setFormData(prev => ({...prev, date: e.target.value}))}
-                        className="w-full p-3 rounded-xl border border-border bg-card focus:ring-2 focus:ring-primary outline-none"
-                      />
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <label className="text-sm font-semibold">Title</label>
-                    <input 
-                      type="text" 
+            <div className="bg-card border border-primary/20 rounded-2xl p-6 shadow-sm">
+              <form onSubmit={handleManualSubmit} className="space-y-4">
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-semibold">Date</label>
+                    <input
+                      type="date"
                       required
-                      placeholder="e.g., Annual Mammogram, Started new vitamins..."
-                      value={formData.title}
-                      onChange={e => setFormData(prev => ({...prev, title: e.target.value}))}
-                      className="w-full p-3 rounded-xl border border-border bg-card focus:ring-2 focus:ring-primary outline-none"
+                      value={manualForm.date}
+                      onChange={e => setManualForm(p => ({ ...p, date: e.target.value }))}
+                      className="w-full p-3 rounded-xl border border-border bg-background focus:ring-2 focus:ring-primary outline-none"
                     />
                   </div>
-
-                  <div className="space-y-2">
-                    <label className="text-sm font-semibold">Notes (Optional)</label>
-                    <textarea 
-                      rows={3}
-                      value={formData.description}
-                      onChange={e => setFormData(prev => ({...prev, description: e.target.value}))}
-                      className="w-full p-3 rounded-xl border border-border bg-card focus:ring-2 focus:ring-primary outline-none resize-none"
-                    />
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-semibold">Type</label>
+                    <div className="relative">
+                      <select
+                        value={manualForm.logType}
+                        onChange={e => setManualForm(p => ({ ...p, logType: e.target.value as any }))}
+                        className="w-full p-3 rounded-xl border border-border bg-background appearance-none pr-10 focus:ring-2 focus:ring-primary outline-none"
+                      >
+                        <option value="screening">Screening</option>
+                        <option value="appointment">Appointment</option>
+                        <option value="medication">Medication</option>
+                        <option value="note">Note</option>
+                      </select>
+                      <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                    </div>
                   </div>
-                  
-                  <div className="flex justify-end pt-2">
-                    <Button type="submit" disabled={mutation.isPending}>
-                      {mutation.isPending ? "Saving..." : "Save Entry"}
-                    </Button>
-                  </div>
-                </form>
-              </CardContent>
-            </Card>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-semibold">Title</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g., Annual Mammogram, Blood test…"
+                    value={manualForm.title}
+                    onChange={e => setManualForm(p => ({ ...p, title: e.target.value }))}
+                    className="w-full p-3 rounded-xl border border-border bg-background focus:ring-2 focus:ring-primary outline-none"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-semibold">Notes (optional)</label>
+                  <textarea
+                    rows={2}
+                    value={manualForm.description}
+                    onChange={e => setManualForm(p => ({ ...p, description: e.target.value }))}
+                    className="w-full p-3 rounded-xl border border-border bg-background focus:ring-2 focus:ring-primary outline-none resize-none"
+                  />
+                </div>
+                <div className="flex justify-end">
+                  <Button type="submit" disabled={createLog.isPending}>
+                    {createLog.isPending ? "Saving…" : "Save Entry"}
+                  </Button>
+                </div>
+              </form>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <div className="space-y-6">
-        {isLoading ? (
-          <div className="space-y-4">
-            {[1,2,3].map(i => <div key={i} className="h-24 bg-muted animate-pulse rounded-2xl" />)}
+      {/* Care plan events — mark as done */}
+      <div>
+        <h2 className="font-display font-semibold text-base mb-4 flex items-center gap-2">
+          <Activity className="w-4 h-4 text-primary" />
+          Your Scheduled Tests
+        </h2>
+
+        {planLoading ? (
+          <div className="space-y-3">
+            {[1, 2, 3].map(i => <div key={i} className="h-16 bg-muted animate-pulse rounded-2xl" />)}
           </div>
-        ) : logs && logs.length > 0 ? (
-          <div className="relative border-l-2 border-border/60 ml-4 pl-6 space-y-8 pb-8">
-            {logs.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((log) => (
-              <div key={log.id} className="relative">
-                {/* Timeline dot */}
-                <div className="absolute -left-[31px] top-1 w-4 h-4 rounded-full bg-white border-2 border-primary ring-4 ring-background" />
-                
-                <Card className="hover:border-primary/30 transition-colors">
-                  <CardContent className="p-5">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-                      <h3 className="font-display font-semibold text-lg text-foreground">{log.title}</h3>
-                      <div className="flex items-center gap-3 text-sm">
-                        <span className="flex items-center gap-1.5 px-2.5 py-1 bg-secondary/50 text-secondary-foreground rounded-md capitalize font-medium">
-                          {getIconForType(log.logType)}
-                          {log.logType}
-                        </span>
-                        <span className="flex items-center gap-1.5 text-muted-foreground">
-                          <CalendarIcon className="w-4 h-4" />
-                          {format(new Date(log.date), 'MMMM d, yyyy')}
-                        </span>
-                      </div>
-                    </div>
-                    {log.description && (
-                      <p className="text-muted-foreground text-sm leading-relaxed bg-slate-50 p-3 rounded-lg border border-border/50">
-                        {log.description}
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
-            ))}
+        ) : events.length === 0 ? (
+          <div className="text-center py-10 bg-card rounded-2xl border border-dashed border-border">
+            <Clock className="w-10 h-10 text-muted mx-auto mb-3" />
+            <p className="text-muted-foreground text-sm">No care plan yet. Get your personalized plan from the home page.</p>
           </div>
         ) : (
-          <div className="text-center py-20 bg-card rounded-3xl border border-border border-dashed">
-            <FileText className="w-16 h-16 text-muted mx-auto mb-4" />
-            <h3 className="text-xl font-display font-bold">No entries yet</h3>
-            <p className="text-muted-foreground mt-2 max-w-sm mx-auto">Start tracking your symptoms, appointments, and lifestyle changes to keep a comprehensive health record.</p>
+          <div className="space-y-3">
+            {events.map(ev => {
+              const isDone = completedEventIds.has(ev.eventId);
+              return (
+                <div
+                  key={ev.id}
+                  className={cn(
+                    "flex items-center gap-4 p-4 rounded-2xl border transition-all",
+                    isDone
+                      ? "bg-green-50/50 border-green-200/60"
+                      : "bg-card border-border/50 hover:border-primary/30"
+                  )}
+                >
+                  <div className={cn(
+                    "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
+                    isDone ? "bg-green-100" : "bg-primary/10"
+                  )}>
+                    {isDone
+                      ? <CheckCircle2 className="w-5 h-5 text-green-600" />
+                      : <Stethoscope className="w-5 h-5 text-primary" />
+                    }
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className={cn("font-semibold text-sm", isDone && "line-through text-muted-foreground")}>
+                      {ev.title}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {ev.provider} · {ev.frequency}
+                      {ev.recommendedStartDate && ` · ${format(parseISO(ev.recommendedStartDate), "MMM d, yyyy")}`}
+                    </p>
+                  </div>
+                  {!isDone ? (
+                    <button
+                      onClick={() => openFeedback(ev)}
+                      className="shrink-0 px-3 py-1.5 rounded-xl bg-primary/10 text-primary font-semibold text-xs hover:bg-primary hover:text-white transition-all"
+                    >
+                      Mark Done
+                    </button>
+                  ) : (
+                    <span className="shrink-0 px-3 py-1.5 rounded-xl bg-green-100 text-green-700 font-semibold text-xs">
+                      Done ✓
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
+
+      {/* Completed tests history */}
+      {completionLogs.length > 0 && (
+        <div>
+          <h2 className="font-display font-semibold text-base mb-4 flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-green-600" />
+            Completed Tests
+          </h2>
+          <div className="relative border-l-2 border-border/60 ml-4 pl-6 space-y-6">
+            {completionLogs.map(log => {
+              const lines = (log.description ?? "").split("\n").filter(l => !l.startsWith("care_plan_event:"));
+              const ratingLine = lines.find(l => l.startsWith("Rating:"))?.replace("Rating: ", "") as FeedbackRating | undefined;
+              const notesLine = lines.find(l => l.startsWith("Notes:"))?.replace("Notes: ", "");
+              return (
+                <div key={log.id} className="relative">
+                  <div className="absolute -left-[31px] top-1 w-4 h-4 rounded-full bg-white border-2 border-green-500 ring-4 ring-background" />
+                  <div className="bg-card border border-border/50 rounded-xl p-4">
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <p className="font-semibold text-sm">{log.title}</p>
+                      <span className="text-xs text-muted-foreground">{format(new Date(log.date), "MMM d, yyyy")}</span>
+                    </div>
+                    {ratingLine && (
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <span className="text-xs font-medium text-muted-foreground">Feedback:</span>
+                        <span className="text-xs font-semibold capitalize">{ratingLine}</span>
+                        {ratingLine === "great" && <span>😊</span>}
+                        {ratingLine === "okay" && <span>😐</span>}
+                        {ratingLine === "issues" && <span>😟</span>}
+                      </div>
+                    )}
+                    {notesLine && <p className="text-xs text-muted-foreground mt-1 italic">{notesLine}</p>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Manual health log history */}
+      {!logsLoading && visibleLogs.length > 0 && (
+        <div>
+          <h2 className="font-display font-semibold text-base mb-4 flex items-center gap-2">
+            <FileText className="w-4 h-4 text-primary" />
+            Health Log
+          </h2>
+          <div className="relative border-l-2 border-border/60 ml-4 pl-6 space-y-6 pb-4">
+            {visibleLogs
+              .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+              .map(log => (
+                <div key={log.id} className="relative">
+                  <div className="absolute -left-[31px] top-1 w-4 h-4 rounded-full bg-white border-2 border-primary ring-4 ring-background" />
+                  <div className="bg-card border border-border/50 rounded-xl p-4">
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <p className="font-semibold text-sm">{log.title}</p>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span className="capitalize bg-secondary/50 px-2 py-0.5 rounded-md font-medium">{log.logType}</span>
+                        <span>{format(new Date(log.date), "MMM d, yyyy")}</span>
+                      </div>
+                    </div>
+                    {log.description && (
+                      <p className="text-xs text-muted-foreground leading-relaxed mt-1 bg-slate-50 p-2 rounded-lg border border-border/40">
+                        {log.description}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
+
+      {/* Feedback Modal */}
+      <AnimatePresence>
+        {feedbackModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={e => { if (e.target === e.currentTarget) setFeedbackModal(null); }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 16 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 16 }}
+              className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6"
+            >
+              <div className="flex items-start justify-between mb-5">
+                <div>
+                  <h3 className="font-display font-bold text-lg">Test Completed!</h3>
+                  <p className="text-sm text-muted-foreground mt-0.5">{feedbackModal.event.title}</p>
+                </div>
+                <button
+                  onClick={() => setFeedbackModal(null)}
+                  className="p-1.5 rounded-lg hover:bg-muted transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <p className="text-sm font-semibold mb-3">How did it go?</p>
+              <div className="grid grid-cols-3 gap-2 mb-5">
+                {RATING_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setRating(opt.value)}
+                    className={cn(
+                      "flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 text-sm font-semibold transition-all",
+                      rating === opt.value
+                        ? opt.color + " border-current scale-105 shadow-sm"
+                        : "border-border hover:border-primary/30 hover:bg-muted/50"
+                    )}
+                  >
+                    <span className="text-2xl">{opt.emoji}</span>
+                    <span className="text-xs">{opt.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="space-y-1.5 mb-5">
+                <label className="text-sm font-semibold">Any notes? (optional)</label>
+                <textarea
+                  rows={3}
+                  placeholder="How did you feel? Any follow-up needed?"
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                  className="w-full p-3 rounded-xl border border-border bg-slate-50 focus:ring-2 focus:ring-primary outline-none resize-none text-sm"
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <Button
+                  onClick={submitFeedback}
+                  disabled={!rating || submitting}
+                  className="flex-1"
+                >
+                  {submitting ? "Saving…" : "Save Feedback"}
+                </Button>
+                <Button variant="outline" onClick={() => setFeedbackModal(null)}>
+                  Cancel
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
