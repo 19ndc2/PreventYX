@@ -33,7 +33,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  if (location === "/") return <>{children}</>;
+  if (location === "/" || location === "/login" || location.startsWith("/login?")) return <>{children}</>;
 
   return (
     <div className="min-h-screen bg-background flex">
