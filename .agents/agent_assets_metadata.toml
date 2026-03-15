@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "7roVEz18hK-eRYQaS0XME"
+uri = "file://README.md"
+type = "text"
+title = "Preventyx README"
